@@ -7,7 +7,7 @@ pyCMF is a Python package for performing Orbital-Optimized Møller-Plesset Pertu
 1.  Clone the repository:
 
     ```bash
-    git clone https://github.com/your-username/pyCMF.git
+    git clone https://github.com/Quantum-Lab-HCMUS/pyCMF.git
     cd pyCMF
     ```
 
