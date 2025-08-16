@@ -31,7 +31,6 @@ from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from ..obmp2 import OBMP2, _ChemistsERIs, OBMP2_active
 # TODO: Unify a name of uobmp2_active
-# TODO DUC: Fix the import problem with this file. 
 from .uobmp2_active import make_veff as make_veff_active
 from .uobmp2_active import make_veff_core ,first_BCH, second_BCH, get_nocc, get_nmo, get_frozen_mask, int_transform_ss, int_transform_os, mom_select, mom_reorder, make_rdm1, sort_tmp1, make_fc
 from pyscf.data import nist
