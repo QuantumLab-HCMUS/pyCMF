@@ -29,8 +29,11 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2, obmp2_faster, obmp2_active
-from pyscf.mp import uobmp2_active as uob_act
+from ..obmp2 import OBMP2, _ChemistsERIs, OBMP2_active
+# TODO: Unify a name of uobmp2_active
+# TODO DUC: Fix the import problem with this file. 
+from .uobmp2_active import make_veff as make_veff_active
+from .uobmp2_active import make_veff_core ,first_BCH, second_BCH, get_nocc, get_nmo, get_frozen_mask, int_transform_ss, int_transform_os, mom_select, mom_reorder, make_rdm1, sort_tmp1, make_fc
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 
@@ -103,7 +106,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         h1mo = numpy.matmul(mp.mo_coeff[sp].T,numpy.matmul(h1ao,mp.mo_coeff[sp]))
         h1mo_act[sp] = h1mo[ncore[sp] : ncore[sp]+nact[sp]\
                     , ncore[sp] : ncore[sp]+nact[sp]]
-    veff_core = uob_act.make_veff_core(mp)
+    veff_core = make_veff_core(mp)
     h1mo_act[0] += veff_core[0]
     h1mo_act[1] += veff_core[1]
 
@@ -122,7 +125,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         fock_hf[sp] = mp.fock_hf[sp][ncore[sp] : ncore[sp]+nact[sp]\
                     , ncore[sp] : ncore[sp]+nact[sp]]
 
-    veff, c0  = uob_act.make_veff(mp)
+    veff, c0  = make_veff_active(mp)
 
     fock = [0, 0]
     fock[0] += fock_hf[0]
@@ -165,7 +168,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     #####################
     ### BCH 1st order  
-    c0, c1_a, c1_b = uob_act.first_BCH(mp, fock_hf, tmp1_bar_act, c0)
+    c0, c1_a, c1_b = first_BCH(mp, fock_hf, tmp1_bar_act, c0)
     # symmetrize c1
     fock[0] += 0.5 * (c1_a + c1_a.T)
     fock[1] += 0.5 * (c1_b + c1_b.T)   
@@ -186,7 +189,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     #####################
     ### BCH 2nd order 
     if mp.second_order:
-        c0, c1_a, c1_b = uob_act.second_BCH(mp, fock, fock_hf, tmp1_act, tmp1_bar_act, c0)
+        c0, c1_a, c1_b = second_BCH(mp, fock, fock_hf, tmp1_act, tmp1_bar_act, c0)
     # symmetrize c1
         fock[0] += 0.5 * (c1_a + c1_a.T)
         fock[1] += 0.5 * (c1_b + c1_b.T) 
@@ -1261,18 +1264,19 @@ def inter_second_BCH(mp, tmp1, tmp1_bar):
     return c1_a, c1_b
     
 
-class UOBMP2(uob_act.UOBMP2):
-    get_nocc = uob_act.get_nocc
-    get_nmo = uob_act.get_nmo
-    get_frozen_mask = uob_act.get_frozen_mask
-    int_transform_ss = uob_act.int_transform_ss
-    int_transform_os = uob_act.int_transform_os
-    mom_select = uob_act.mom_select
-    mom_reorder = uob_act.mom_reorder
+class UOBMP2(OBMP2_active):
+    # TODO: In uobmp2_active, Should have a init method to take cares the below variables. Then using super().__init__()
+    get_nocc = get_nocc
+    get_nmo = get_nmo
+    get_frozen_mask = get_frozen_mask
+    int_transform_ss = int_transform_ss
+    int_transform_os = int_transform_os
+    mom_select = mom_select
+    mom_reorder = mom_reorder
     break_sym = False
     #use_t2 = False
     
-    @lib.with_doc(obmp2_active.OBMP2.kernel.__doc__)
+    @lib.with_doc(OBMP2_active.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kern=kernel):
         self.ene_act, self.ene_inact, self.ene_ob_inact, self.ene_hf_inact, self.h1mo_vqe\
             , self.h2mo_act, self.tmp1_bar_act, self.tmp1\
@@ -1286,10 +1290,10 @@ class UOBMP2(uob_act.UOBMP2):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         return _make_eris(self, mo_coeff, verbose=self.verbose)
 
-    make_rdm1 = uob_act.make_rdm1
-    sort_tmp1 = uob_act.sort_tmp1
+    make_rdm1 = make_rdm1
+    sort_tmp1 = sort_tmp1
     #make_rdm2 = make_rdm2
-    make_fc = uob_act.make_fc
+    make_fc = make_fc
     eval_fc = False
 
     def nuc_grad_method(self):
@@ -1303,7 +1307,7 @@ OBMP2 = UOBMP2
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2._ChemistsERIs):
+class _ChemistsERIs(_ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff

@@ -30,7 +30,6 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2_faster
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
@@ -927,30 +926,30 @@ def _ao2mo_ovov(mp, orbo, orbv, feri, max_memory=2000, verbose=None):
     return h5dat
 
 
-#del(WITH_T2)
+# del(WITH_T2)
 
 
-#if __name__ == '__main__':
-#    from pyscf import scf
-#    from pyscf import gto
-#    mol = gto.Mole()
-#    mol.atom = [
-#        [8 , (0. , 0.     , 0.)],
-#        [1 , (0. , -0.757 , 0.587)],
-#        [1 , (0. , 0.757  , 0.587)]]
+# if __name__ == '__main__':
+#     from pyscf import scf
+#     from pyscf import gto
+#     mol = gto.Mole()
+#     mol.atom = [
+#         [8 , (0. , 0.     , 0.)],
+#         [1 , (0. , -0.757 , 0.587)],
+#         [1 , (0. , 0.757  , 0.587)]]
 
-#    mol.basis = 'cc-pvdz'
-#    mol.build()
-#    mf = scf.RHF(mol).run()
-#    mp = OBMP2(mf)
-#    mp.verbose = 5
+#     mol.basis = 'cc-pvdz'
+#     mol.build()
+#     mf = scf.RHF(mol).run()
+#     mp = OBMP2(mf, 2, 1)
+#     mp.verbose = 5
 
-    #pt = OBMP2(mf)
-    #emp2, t2 = pt.kernel()
-    #print(emp2 - -0.204019967288338)
-    #pt.max_memory = 1
-    #emp2, t2 = pt.kernel()
-    #print(emp2 - -0.204019967288338)
-    #
-    #pt = MP2(scf.density_fit(mf, 'weigend'))
-    #print(pt.kernel()[0] - -0.204254500454)
+#     pt = OBMP2(mf, 2, 1)
+#     emp2, t2 = pt.kernel()
+#     print(emp2 - -0.204019967288338)
+#     pt.max_memory = 1
+#     emp2, t2 = pt.kernel()
+#     print(emp2 - -0.204019967288338)
+    
+    # pt = MP2(scf.density_fit(mf, 'weigend'))
+    # print(pt.kernel()[0] - -0.204254500454)

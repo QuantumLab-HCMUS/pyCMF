@@ -26,11 +26,13 @@ import scipy.linalg
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
-from pyscf.mp import mp2, obmp2_faster
+from pyscf.mp import mp2
 from pyscf import df
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
+
+from . import OBMP2_faster
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
@@ -582,7 +584,7 @@ def get_frozen_mask(mp):
     return moidx
 
 
-class DFOBMP2(obmp2_faster.OBMP2):
+class DFOBMP2(OBMP2_faster):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
 
         if mo_coeff  is None: mo_coeff  = mf.mo_coeff

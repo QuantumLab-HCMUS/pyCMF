@@ -29,7 +29,7 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2
+from ..obmp2 import OBMP2, _ChemistsERIs
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 
@@ -1217,7 +1217,7 @@ def _get_integrals_fc_Rreslv(mol, coords):
     return 4*numpy.pi/3 * numpy.einsum('ip,iq->pq', ao, ao)
 
 
-class UOBMP2(obmp2.OBMP2):
+class UOBMP2(OBMP2):
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -1229,7 +1229,7 @@ class UOBMP2(obmp2.OBMP2):
     break_sym = False
     #use_t2 = False
 
-    @lib.with_doc(obmp2.OBMP2.kernel.__doc__)
+    @lib.with_doc(OBMP2.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         return kernel(self, mo_energy, mo_coeff, eris, with_t2, kernel)
 
@@ -1246,13 +1246,14 @@ class UOBMP2(obmp2.OBMP2):
         from pyscf.grad import ump2
         return ump2.Gradients(self)
 
+# TODO: Clarify what does the below line does?
 OBMP2 = UOBMP2
 
 #from pyscf import scf
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2._ChemistsERIs):
+class _ChemistsERIs(_ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff
