@@ -6,21 +6,21 @@ pyCMF is a Python package for performing Orbital-Optimized Møller-Plesset Pertu
 
 1.  Clone the repository:
 
-    ```bash
-    git clone https://github.com/Quantum-Lab-HCMUS/pyCMF.git
-    cd pyCMF
-    ```
+```bash
+git clone https://github.com/Quantum-Lab-HCMUS/pyCMF.git
+cd pyCMF
+```
 
 2.  Install the required dependencies:
-
-    ```bash
-    conda create -n pycmf python=3.11 anaconda
-    conda activate pycmf
-    ```
-
-    ```bash
-    pip install -r requirements.txt
-    ```
+Create conda enviroment:
+```bash
+conda create -n pycmf python=3.11 anaconda
+conda activate pycmf
+```
+Now we install the requirements:
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 Run `main.py` to see a simple example of how to use pyCMF to perform a UOBMP2
