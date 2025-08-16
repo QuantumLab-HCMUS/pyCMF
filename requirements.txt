@@ -1,2 +1,2 @@
-pyscf
-opt_einsum
+pyscf==2.10.0
+opt_einsum==3.4.0
