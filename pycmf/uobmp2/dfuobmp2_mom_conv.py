@@ -29,7 +29,9 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2, uobmp2_mom_conv, dfuobmp2_ram_reduced, dfobmp2_faster_ram, mp2, dfobmp2_slower
+from pycmf.uobmp2 import uobmp2_mom_conv, dfuobmp2_ram_reduced
+from pycmf.obmp2 import obmp2, dfobmp2_faster_ram, dfobmp2_slower
+from pyscf.mp import mp2
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
