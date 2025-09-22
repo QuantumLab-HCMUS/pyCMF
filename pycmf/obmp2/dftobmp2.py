@@ -19,7 +19,7 @@
 '''
 
 import time
-from functools import reduce
+#from functools import reduce
 import copy
 import numpy
 import scipy.linalg
@@ -64,6 +64,9 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     S = mp._scf.get_ovlp()
     A = scipy.linalg.fractional_matrix_power(S, -0.5)
+    #print('S shape =', S.shape) #(nao,nao)
+    #print('A shape =', A.shape) #(nao,nao)
+
     F_list_a = []
     DIIS_RESID_a = []
 
@@ -97,23 +100,8 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     h1e = mp._scf.get_hcore(mol)
     vhf = mp._scf.get_veff(mol, dm)
 
-    # if isinstance(mp._scf.diis, lib.diis.DIIS):
-    #     mf_diis = mp._scf.diis
-    # elif mf.diis:
-    #     assert issubclass(mp._scf.DIIS, lib.diis.DIIS)
-    #     mf_diis = mp._scf.DIIS(mp._scf, mp._scf.diis_file)
-    #     mf_diis.space = mp._scf.diis_space
-    #     mf_diis.rollback = mp._scf.diis_space_rollback
 
-    #     # We get the used orthonormalized AO basis from any old eigendecomposition.
-    #     # Since the ingredients for the Fock matrix has already been built, we can
-    #     # just go ahead and use it to determine the orthonormal basis vectors.
-    #     fock = mp._scf.get_fock(h1e, s1e, vhf, dm)
-    #     _, mf_diis.Corth = mp._scf.eig(fock, s1e)
-    # else:
-    #     mf_diis = None
-
-    s1e = mp._scf.get_ovlp(mol)
+    #s1e = mp._scf.get_ovlp(mol)
     
     
     dm_last = None
@@ -129,8 +117,13 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
         #h2mo = [] #numpy.zeros((nmo,nmo,nmo,nmo)) #int_transform(eri_ao, mp.mo_coeff)
         #print(h1ao.shape)
+        
+        mp.mo_coeff, mp.mo_energy = coeff_active(mp)
+
         h1ao = mp._scf.get_hcore(mp.mol)
         h1mo = numpy.matmul(mp.mo_coeff.T,numpy.matmul(h1ao, mp.mo_coeff))
+        #print('h1mo shape in iter = ', h1mo.shape) #(n_keep_vir, n_keep_vir)
+
         h1mo_vqe = 0
         h1mo_vqe += h1mo
 
@@ -144,7 +137,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
         fock_hf = h1mo
         veff, c0_hf = make_veff(mp)
-        fock_hf += veff
+        fock_hf += veff # (nmo, nmo)
         
         
 
@@ -216,8 +209,12 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         for i in range(nocc):    
             ene_hf_core += 2. * h1ao[i,i]
         
-        ene_dft =  ks.energy_elec(dm, h1ao, vxc)[0]
 
+        # print('dm = ', dm)
+        # print('h1ao =', h1ao)
+        # print('vhf =', vhf)
+        ene_dft =  ks.energy_elec(dm, h1ao, vxc)[0]
+        # print('E_DFT = ', ene_dft )
         
         ene_obmp2 = c0
         for i in range(nocc):
@@ -229,7 +226,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         
         # Fock
         fock = (fock_dft) + (fock_obmp2 - fock_hf_pyscf) * alpha[1] 
-        
+        #print('fock shape =', fock.shape) #(nmo_active, nmo_active)now(69,69)
         
         ene_tot = ene + nuc
         
@@ -238,20 +235,42 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         print('iter = %d'%it, ' energy = %8.6f'%ene_tot, ' energy diff = %14.8f'%de, flush=True)
 
         # fock mo to Fock ao
+        #print('S shape DIIS =', S.shape) #(110,110)
+        #print('mo_coeff shape DIIS =', mp.mo_coeff.shape) #(110,69)
+        #print('fock shape DIIS =', fock.shape) #(69,69)
         F_a = S@ mp.mo_coeff@ fock@ mp.mo_coeff.T@ S
+
+        F_a = numpy.array(F_a, dtype=numpy.float64)
+        S   = numpy.array(S, dtype=numpy.float64)
+        #print('F_a shape =', F_a.shape) #(110,110)
         C_occa = mp.mo_coeff[:, :nocca]
         D_a = numpy.einsum('pi,qi->pq', C_occa, C_occa, optimize=True)
         
-        err_a_ao = F_a.dot(D_a).dot(S) - S.dot(D_a).dot(F_a)
+        err_a_ao = F_a @ D_a @ S - S @ D_a @ F_a   # AO residual (use this)
+        diis_r_a = 0.5*(err_a_ao + err_a_ao.T)     # symmetrize residual for safety
+
+
+        #err_a_ao = F_a.dot(D_a).dot(S) - S.dot(D_a).dot(F_a)
         err_a_mo = numpy.matmul(mp.mo_coeff.T,numpy.matmul(err_a_ao,mp.mo_coeff))
-         
+        #print('err_a_mo shape =', err_a_mo.shape) #(69,69)
+        #Change A_ao to A_mo
+        #print('A shape =', A.shape) #(110,110)
+        A_mo = mp.mo_coeff.T @ A @ mp.mo_coeff
+
+        
         # Build DIIS Residual
-        #diis_r_a = A.dot(err_a_mo*50).dot(A)
-        diis_r_a = A.dot(err_a_mo*100).dot(A)
+        #diis_r_a = A.dot(err_a_ao*100).dot(A)
+        #diis_r_a = A_mo.dot(err_a_mo*100).dot(A_mo)
         diis_r_a = diis_r_a.real
         # Append trial & residual vectors to lists
         F_list_a.append(F_a)
         DIIS_RESID_a.append(diis_r_a) 
+        
+        max_diis = 40
+        n_keep = 30
+        if len(F_list_a) > max_diis:
+            F_list_a = F_list_a[-n_keep:]
+            DIIS_RESID_a = DIIS_RESID_a[-n_keep:]
 
         dRMS = numpy.mean(diis_r_a**2)**0.5
         
@@ -280,11 +299,13 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
                 F_a += coeff_a[x] * F_list_a[x]
             
         
+        #print('mo_coeff shape before DIIS =', mp.mo_coeff) #(110,69)
         
         # Compute new orbital guess with DIIS Fock matrix
         mp.mo_energy, mp.mo_coeff = scipy.linalg.eigh(F_a, S)
         
-
+        #print('mo_coeff shape after DIIS =', mp.mo_coeff) #(110,69)
+        
         if de <= mp.thresh:
             break
             
@@ -301,6 +322,10 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     return ene_tot - ene_hf, tmp1, h1mo_vqe, fock_hf
 
 #################################################################################################################
+def coeff_active(mp):
+    mo_coeff_active = mp.mo_coeff[:, :mp.nocc + mp.n_keep_vir]
+    mo_energy_active = mp.mo_energy[:mp.nocc + mp.n_keep_vir]
+    return mo_coeff_active, mo_energy_active
 
 def int_transform(eri_ao, mo_coeff):
     nao = mo_coeff.shape[0]
@@ -314,14 +339,14 @@ def int_transform(eri_ao, mo_coeff):
     return eri_mo
 
 def make_veff(mp):
-    nmo  = mp.nmo
+    nmo  = mp.nocc + mp.n_keep_vir
     nocc = mp.nocc
-    mo_coeff  = mp.mo_coeff
+    #mo_coeff  = mp.mo_coeff
     naux = mp.with_df.get_naoaux()
-    print('nmo make_veff =', nmo)
-    print('nocc make_veff =', nocc)
-    print('nvir make_veff =', nmo - nocc)
-    print('naux make_veff =', naux)
+    #print('nmo make_veff =', nmo)
+    #print('nocc make_veff =', nocc)
+    #print('nvir make_veff =', nmo - nocc)
+    #print('naux make_veff =', naux)
     from pyscf.lib import current_memory
     import tracemalloc
     tracemalloc.start()
@@ -341,15 +366,17 @@ def make_veff(mp):
 
 
 def make_amp(mp):
-    nmo  = mp.nmo
+    #nmo  = mp.nmo
+    nmo = mp.nocc + mp.n_keep_vir
     nocc = mp.nocc
-    nvir = nmo - nocc
+    #nvir = nmo - nocc
+    nvir = mp.n_keep_vir
     mo_energy = mp.mo_energy
     mo_coeff  = mp.mo_coeff
     print('mo_coeff make_amp shape =', mo_coeff.shape)
-    print('nmo make_amp =', nmo)
-    print('nocc make_amp =', nocc)
-    print('nvir make_amp =', nvir)
+    #print('nmo make_amp =', nmo)
+    #print('nocc make_amp =', nocc)
+    #print('nvir make_amp =', nvir)
     #co = numpy.asarray(mo_coeff[:,:nocc], order='F')
     #cv = numpy.asarray(mo_coeff[:,nocc:], order='F')
     from pyscf.lib import current_memory
@@ -377,10 +404,12 @@ def make_amp(mp):
     return tmp1, tmp1_bar
 
 def first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
-    mo_coeff  = mp.mo_coeff
-    nmo  = mp.nmo
+    #mo_coeff  = mp.mo_coeff
+    #nmo  = mp.nmo
+    nmo = mp.nocc + mp.n_keep_vir
     nocc = mp.nocc
-    nvir = mp.nmo - nocc
+    #nvir = mp.nmo - nocc
+    nvir = mp.n_keep_vir
     naux = mp.with_df.get_naoaux()
 
     c1 = numpy.zeros((nmo,nmo), dtype=fock_hf.dtype)
@@ -391,6 +420,7 @@ def first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
 
     for istep, qov in enumerate(mp.loop_ao2mo(mp.mo_coeff, mp.nocc)):
         qov = qov
+        #print('qov shape in first_BCh =', qov.shape) #(212,909)
     
     for i in range(nocc):
         c0 -= 4.*numpy.einsum("ajb, ajb -> ", numpy.dot(qov[:,i*nvir:(i+1)*nvir].T, qov).reshape(nvir, nocc, nvir), tmp1_bar[i,:,:,:])
@@ -423,9 +453,11 @@ def first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
     return c0, c1
 
 def second_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
-    nmo  = mp.nmo
+    #nmo  = mp.nmo
+    nmo = mp.nocc + mp.n_keep_vir
     nocc = mp.nocc
-    nvir = mp.nmo - nocc
+    #nvir = mp.nmo - nocc
+    nvir = mp.n_keep_vir
 
     c1 = numpy.zeros((nmo,nmo), dtype=fock_hf.dtype)
     #[1]
@@ -494,59 +526,6 @@ def second_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
                     fock_hf[nocc:,:].T * numpy.tile(y1[:,c],(nmo,1)))
     return c0, c1
 
-#def eval_IP_EA():
-    ### evaluating IPs and EAs
-    #ip_obmp2 = []
-    #for h in range(nocc):
-    #    tmp2 = 0.
-    #    for i in range(nocc-1):
-    #        for j in range(nocc-1):
-    #            for a in range(nvir):
-    #                A = a+nocc
-    #                if i != h and j != h:
-    #                    tmp2 +=  tmp1_bar[i,a,j,h] * h2mo[i,A,j,h]
-    #
-    #    ip_obmp2.append(27.2114*(-mo_energy[h] + 2.*tmp2))
-    #
-    #
-    #tmp1_new = numpy.zeros((nocc,nvir,nvir,nvir), dtype=fock_hf.dtype)
-    #for i in range(nocc):
-    #    for a in range(nvir):
-    #        for l in range(nvir):
-    #            for b in range(nvir):
-    #                A = a+nocc
-    #                B = b+nocc
-    #                L = l+nocc
-    #                x = mo_energy[i] + mo_energy[L] - mo_energy[A] - mo_energy[B]
-    #                tmp1_new[i,a,l,b] = 1. * h2mo[i,A,L,B]/x
-    #                
-    #tmp1_bar_new = numpy.zeros((nocc,nvir,nvir,nvir), dtype=tmp1.dtype)
-    #for i in range(nocc):
-    #    for a in range(nvir):
-    #        for l in range(nvir):
-    #            for b in range(nvir):
-    #                tmp1_bar_new[i,a,l,b] = tmp1_new[i,a,l,b] - 0.5 * tmp1_new[i,b,l,a]
-    #                
-    #ea_obmp2 = []
-    #for l in range(nvir):
-    #    L = l+nocc
-    #    tmp2 = 0.
-    #    for a in range(nvir):
-    #        for b in range(nvir):
-    #            for i in range(nocc):
-    #                A = a+nocc
-    #                B = b+nocc
-    #                if a != l and b != l:
-    #                    tmp2 +=  tmp1_bar_new[i,a,l,b] * h2mo[i,A,L,B]
-    #
-    #    ea_obmp2.append(27.2114*(-mo_energy[L] - 2.*tmp2))
-    #
-    ##print("ip_obmp2 (in eV)", flush=True)
-    ##print(ip_obmp2[nocc-1], flush=True)
-    #print("ea_obmp2 (in eV)", flush=True)
-    #print(ea_obmp2, flush=True)
-
-
 
 def make_rdm1(mp): # , t2=None, eris=None, verbose=logger.NOTE, ao_repr=False):
     '''Spin-traced one-particle density matrix.
@@ -566,7 +545,8 @@ def make_rdm1(mp): # , t2=None, eris=None, verbose=logger.NOTE, ao_repr=False):
     from pyscf.cc import ccsd_rdm
 
     nocc = mp.nocc
-    nvir = mp.nmo - nocc
+    #nvir = mp.nmo - nocc
+    nvir = mp.n_keep_vir
     eia = mp.mo_energy[:nocc,None] - mp.mo_energy[None,nocc:] 
     eris = mp.ao2mo(mp.mo_coeff)
 
@@ -593,9 +573,11 @@ def make_rdm1(mp): # , t2=None, eris=None, verbose=logger.NOTE, ao_repr=False):
 
 def _gamma1_intermediates(mp, t2=None, eris=None):
     if t2 is None: t2 = mp.t2
-    nmo = mp.nmo
+    #nmo = mp.nmo
+    nmo = mp.nocc + mp.n_keep_vir
     nocc = mp.nocc
-    nvir = nmo - nocc
+    #nvir = nmo - nocc
+    nvir = mp.n_keep_vir
     if t2 is None:
         if eris is None: eris = mp.ao2mo()
         mo_energy = _mo_energy_without_core(mp, mp.mo_energy)
@@ -620,77 +602,6 @@ def _gamma1_intermediates(mp, t2=None, eris=None):
                 - numpy.einsum('iab,jba->ij', l2i, t2i)
     return -dm1occ, dm1vir
 
-
-#def make_rdm2(mp, t2=None, eris=None, verbose=logger.NOTE):
-#    r'''
-#    Spin-traced two-particle density matrix in MO basis
-#
-#    dm2[p,q,r,s] = \sum_{sigma,tau} <p_sigma^\dagger r_tau^\dagger s_tau q_sigma>
-#
-#    Note the contraction between ERIs (in Chemist's notation) and rdm2 is
-#    E = einsum('pqrs,pqrs', eri, rdm2)
-#    '''
-#    if t2 is None: t2 = mp.t2
-#    nmo = nmo0 = mp.nmo
-#    nocc = nocc0 = mp.nocc
-#    nvir = nmo - nocc
-#    if t2 is None:
-#        if eris is None: eris = mp.ao2mo()
-#        mo_energy = _mo_energy_without_core(mp, mp.mo_energy)
-#        eia = mo_energy[:nocc,None] - mo_energy[None,nocc:]
-#
-#    if not (mp.frozen is 0 or mp.frozen is None):
-#        nmo0 = mp.mo_occ.size
-#        nocc0 = numpy.count_nonzero(mp.mo_occ > 0)
-#        moidx = get_frozen_mask(mp)
-#        oidx = numpy.where(moidx & (mp.mo_occ > 0))[0]
-#        vidx = numpy.where(moidx & (mp.mo_occ ==0))[0]
-#    else:
-#        moidx = oidx = vidx = None
-#
-#    dm1 = make_rdm1(mp, t2, eris, verbose)
-#    dm1[numpy.diag_indices(nocc0)] -= 2
-#
-#    dm2 = numpy.zeros((nmo0,nmo0,nmo0,nmo0), dtype=dm1.dtype) # Chemist notation
-#    #dm2[:nocc,nocc:,:nocc,nocc:] = t2.transpose(0,3,1,2)*2 - t2.transpose(0,2,1,3)
-#    #dm2[nocc:,:nocc,nocc:,:nocc] = t2.transpose(3,0,2,1)*2 - t2.transpose(2,0,3,1)
-#    for i in range(nocc):
-#        if t2 is None:
-#            gi = numpy.asarray(eris.ovov[i*nvir:(i+1)*nvir])
-#            gi = gi.reshape(nvir,nocc,nvir).transpose(1,0,2)
-#            t2i = gi.conj()/lib.direct_sum('jb+a->jba', eia, eia[i])
-#        else:
-#            t2i = t2[i]
-#        # dm2 was computed as dm2[p,q,r,s] = < p^\dagger r^\dagger s q > in the
-#        # above. Transposing it so that it be contracted with ERIs (in Chemist's
-#        # notation):
-#        #   E = einsum('pqrs,pqrs', eri, rdm2)
-#        dovov = t2i.transpose(1,0,2)*2 - t2i.transpose(2,0,1)
-#        dovov *= 2
-#        if moidx is None:
-#            dm2[i,nocc:,:nocc,nocc:] = dovov
-#            dm2[nocc:,i,nocc:,:nocc] = dovov.conj().transpose(0,2,1)
-#        else:
-#            dm2[oidx[i],vidx[:,None,None],oidx[:,None],vidx] = dovov
-#            dm2[vidx[:,None,None],oidx[i],vidx[:,None],oidx] = dovov.conj().transpose(0,2,1)
-#
-#    # Be careful with convention of dm1 and dm2
-#    #   dm1[q,p] = <p^\dagger q>
-#    #   dm2[p,q,r,s] = < p^\dagger r^\dagger s q >
-#    #   E = einsum('pq,qp', h1, dm1) + .5 * einsum('pqrs,pqrs', eri, dm2)
-#    # When adding dm1 contribution, dm1 subscripts need to be flipped
-#    for i in range(nocc0):
-#        dm2[i,i,:,:] += dm1.T * 2
-#        dm2[:,:,i,i] += dm1.T * 2
-#        dm2[:,i,i,:] -= dm1.T
-#        dm2[i,:,:,i] -= dm1
-#
-#    for i in range(nocc0):
-#        for j in range(nocc0):
-#            dm2[i,i,j,j] += 4
-#            dm2[i,j,j,i] -= 2
-#
-#    return dm2#.transpose(1,0,3,2)
 
 
 def get_nocc(mp):
@@ -751,8 +662,8 @@ class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
         if mo_coeff  is None: mo_coeff  = mf.mo_coeff
         if mo_occ    is None: mo_occ    = mf.mo_occ
 
-        self.thresh = 1e-06
-        self.shift = 0.0
+        self.thresh = 1e-07
+        self.shift = 0
         self.niter = 1000
         self.mol = mf.mol
         self._scf = mf
@@ -769,6 +680,8 @@ class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
         self.second_order = True
         self.ampf = 0.5
 
+        self.alpha = None
+        self.n_keep_vir = None
 ##################################################
 # don't modify the following attributes, they are not input options
         self.mo_energy = mf.mo_energy
@@ -882,7 +795,8 @@ class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
     
     def loop_ao2mo(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        #nmo = mo.shape[0]
+        nmo = self.nocc + self.n_keep_vir
         ijslice = (0, nocc, nocc, nmo)
         Lov = None
         with_df = self.with_df
@@ -899,7 +813,8 @@ class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
 
     def loop_ao2mo_goog_cocg(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        #nmo = mo.shape[0]
+        nmo = self.nocc + self.n_keep_vir
         ijslice = (0, nocc , 0, nmo)
         Lov = None
         with_df = self.with_df
@@ -951,7 +866,8 @@ class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
 
     def loop_ao2mo_ggoo_cgcg(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        #nmo = mo.shape[0]
+        nmo = self.nocc + self.n_keep_vir
         ijslice = (0, nmo , 0, nmo)
         Lov = None
         with_df = self.with_df
@@ -968,11 +884,13 @@ class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
 
     def loop_ao2mo_cgcv(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        #nmo = mo.shape[0]
+        nmo = self.nocc + self.n_keep_vir
         Lov = None
         with_df = self.with_df
 
-        nvir = nmo - nocc
+        #nvir = nmo - nocc
+        nvir  = self.n_keep_vir
         ijslice = (0, nmo , nocc , nmo)
         naux = with_df.get_naoaux()
         mem_now = lib.current_memory()[0]
@@ -1018,10 +936,11 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     time0 = (time.clock(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
     mo_coeff = eris.mo_coeff
-
+    print('mo_coeff _make_eris shape =', mo_coeff.shape)
     nocc = mp.nocc
     nmo = mp.nmo
-    nvir = nmo - nocc
+    #nvir = nmo - nocc
+    nvir = mp.n_keep_vir
     mem_incore, mem_outcore, mem_basic = _mem_usage(nocc, nvir)
     mem_now = lib.current_memory()[0]
     max_memory = max(0, mp.max_memory - mem_now)
@@ -1169,12 +1088,51 @@ def run_parallel(params):
     
 
 
+def scan_n_keep_vir(max_n=100, outdir="Result"):
+    import pandas as pd
+    import time
+    import os
+    from datetime import datetime
+    results = []
+    mf = scf.RHF(mol).density_fit().run()
+    mppp = B2PLYPDFOBMP2(mf)
+    mppp.alpha= (0.53,0.1)
+    # Thêm thời gian kết thúc (YYYYmmdd_HHMMSS)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{outdir}/result_{mppp.nmo}_{mppp.thresh}_{timestamp}.xlsx"
+
+    os.makedirs(outdir, exist_ok=True)
+
+    for i in range(75,max_n):
+        mf = scf.RHF(mol).density_fit().run()
+        mppp = B2PLYPDFOBMP2(mf)
+        mppp.alpha= (0.53,0.1)
+
+        mppp.n_keep_vir = i + 1
+
+        start = time.time()
+        dhf = mppp.run()
+        end = time.time()
+        elapsed = end - start
+
+        results.append({
+            "n_keep_vir": i + 1,
+            "e_tot": dhf.e_tot,
+            "time_sec": elapsed
+        })
+        print(f"n_keep_vir={i+1}, e_tot={dhf.e_tot}, time={elapsed:.3f}s")
+
+    df = pd.DataFrame(results)
+    df.to_excel(filename, index=False)
+    return df, filename
+
+
 
 if __name__ == '__main__':
     from pyscf import scf
     from pyscf import gto
     #from pyscf.mp import dfobmp2_faster_ram , dfmp2_native, mp2
-    from pyscf.mp import dfmp2_native, mp2
+    from pyscf.mp import mp2
     import dfobmp2_faster_ram
     mol = gto.Mole()
     mol.atom = [
@@ -1185,30 +1143,26 @@ if __name__ == '__main__':
     mol.basis = 'ccpvqz'
     mol.build()
     # mf = scf.UHF(mol).run()
+    #df, fname = scan_n_keep_vir(max_n=101, outdir="Result")
+    #print("File đã lưu:", fname)
     mf = scf.RHF(mol).density_fit().run()
     mppp = B2PLYPDFOBMP2(mf)
     mppp.alpha= (0.53,0.1)
-    dhf= mppp.run()
-    ks = dft.RKS(mol, f"0.53*HF+ 0.47*B88,LYP").density_fit().run()
-    mpp=dfobmp2_faster_ram.DFOBMP2(mf).run()
-    mf = scf.RHF(mol).density_fit().run()
-    mp22=dfmp2_native.DFMP2(mf).run()
-    print('alpha=',mppp.alpha)
-    print('dftobmp2=',dhf.e_tot)
+    mppp.n_keep_vir = 99
+    dhf = mppp.run()
+    # print('dftobmp2=',dhf.e_tot)
+    # ks = dft.RKS(mol, f"0.53*HF+ 0.47*B88,LYP").density_fit().run()
+    # mpp=dfobmp2_faster_ram.DFOBMP2(mf).run()
+    # mf = scf.RHF(mol).density_fit().run()
+    # mp22=dfmp2_native.DFMP2(mf).run()
+    # print('alpha=',mppp.alpha)
+     
     # print('hf=', mf.e_tot) 
     # print('dft=', ks.e_tot)  
     # print('DFOBMP2=',mpp.e_tot)
     # print('mp2=',mp22.e_tot)
-    #export OPENBLAS_NUM_THREADS=1
+    #   export OPENBLAS_NUM_THREADS=1
 
-    #-195.4286595400448
-    #-195.06793347295257
-
-    #-195.42866127689302
-    #-195.42866139004047
+    #-195.426163377709
     
-    #-195.4286615805472
-    #-195.42866134600808
-    #-195.42866134758054
     
-    #-195.4210697980983
