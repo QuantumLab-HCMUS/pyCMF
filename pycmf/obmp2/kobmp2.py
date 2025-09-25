@@ -18,6 +18,8 @@
 Periodic OB-MP2
 '''
 
+"Hello my name is Duy and I am a student at VNUHCM - University of Science"
+
 import time, tracemalloc
 #import time, logging, tracemalloc
 from functools import reduce
