@@ -245,7 +245,7 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
     Vòng lặp này là trung tâm của phương pháp OBMP2 và đóng vai trò
       tìm orbital phân tử tối ưu để cải thiện mô tả tương quan điện tử.    
     '''
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3] # Thêm mili giây.
     
     paths = prepare_contract_paths(mp)
     (path_pj, path_bp, path_bj, path_sum_3,
@@ -666,7 +666,6 @@ def make_amp(mp, mo_energy, mo_coeff):
                 
     return tmp1, tmp1_bar, h2mo_ovgg
 """
-
 def BCH(mp, mo_energy, mo_coeff, fock_hf,
         path_pj, path_bp, path_bj, path_sum_3,
         path_jb, path_ck, path_iakb, path_lj,
@@ -914,6 +913,7 @@ def BCH(mp, mo_energy, mo_coeff, fock_hf,
                                                       tmp1_bar_ialb[:,:,0,:],
                                                       h2mo_ovvv_ki_ka_0[:,:,0,:]).real # Hiện tại đang chạy chính xác
                                 #EA += -2*numpy.einsum('iab, iab ->',tmp1_bar_ialb[:,:,0,:],h2mo_ovvv[ki,ka,0,:,:,0,:]).real
+                                del h2mo_ovvv_ki_ka_0 # Giải phóng bộ nhớ ngay sau khi sử dụng xong
 
                             c1[kj,kj,:,:nocc] += 2 * oe.contract('iajb, iapb -> pj',
                                                              tmp1_bar_batch[ki_idx,ka,kj_idx],
