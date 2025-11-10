@@ -30,6 +30,8 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.pbc.lib import kpts_helper
 from pyscf import __config__
+from numba import jit
+import pickle
 #from pyscf.pbc.mp import kmp2
 
 import datetime
@@ -113,6 +115,9 @@ def prepare_contract_paths(mp):
     nocc = mp.nocc
     nvir = nmo - nocc
 
+    print(f"[prepare_contract_paths] Đang tính toán paths cho nmo={nmo}, nocc={nocc}...")
+    start_time = time.time() # Bấm giờ
+
     # ------------------------------------------
     # Dummy tensors (tạo cùng shape như trong kernel gốc)
     # ------------------------------------------
@@ -195,6 +200,8 @@ def prepare_contract_paths(mp):
         path_jb = path_ck = path_iakb = path_lj = path_ki = path_bd = path_sum = path_ialb = \
         path_lj_2 = path_ac_2 = path_bd_2 = path_sum_2 = path_ki_3 = path_ac_3 = None
 
+    print(f"--- Đã tính toán xong paths. (Tốn {time.time() - start_time:.4f} giây)")
+
     return {
         'pj': path_pj,
         'bp': path_bp,
@@ -216,6 +223,83 @@ def prepare_contract_paths(mp):
         'ac_3': path_ac_3
     }
 
+def get_or_create_contract_paths(mp, cache_dir="./einsum_cache"):
+    """
+    Tải (load) các einsum paths đã tối ưu từ file cache nếu có.
+    Nếu không, tính toán chúng và lưu vào cache cho lần sau.
+    
+    Một file cache .pkl duy nhất sẽ được tạo ra cho mỗi
+    tổ hợp (nmo, nocc, second_order).
+    """
+    
+    # 1. Xác định các tham số duy nhất của hệ
+    nmo = mp.nmo
+    nocc = mp.nocc
+    so = mp.second_order
+    
+    # Tạo thư mục cache nếu nó chưa tồn tại
+    if not os.path.exists(cache_dir):
+        try:
+            os.makedirs(cache_dir)
+            print(f"Đã tạo thư mục cache: {cache_dir}")
+        except OSError as e:
+            print(f"Lỗi khi tạo thư mục cache {cache_dir}: {e}")
+            # Nếu không tạo được, chạy tính toán mà không lưu
+            return prepare_contract_paths(mp)
+
+    # 2. Tạo tên file duy nhất
+    filename = f"obmp2_paths_nmo{nmo}_nocc{nocc}_so{bool(so)}.pkl"
+    filepath = os.path.join(cache_dir, filename)
+
+    # 3. Logic: Tải (Load) hoặc Tính toán (Calculate) & Lưu (Save)
+    try:
+        # --- THỬ TẢI (LOAD) ---
+        if os.path.exists(filepath):
+            print(f"--- Đã tìm thấy file path cache: {filepath}")
+            print("--- Đang tải paths từ file (siêu nhanh)...")
+            start_load = time.time()
+            with open(filepath, 'rb') as f:
+                paths = pickle.load(f)
+            print(f"--- Tải paths thành công! (Tốn {time.time() - start_load:.4f} giây)")
+            return paths
+            
+        # --- TÍNH TOÁN & LƯU (SAVE) ---
+        else:
+            print(f"--- Không tìm thấy file cache: {filepath}")
+            print("--- Bắt đầu tính toán einsum paths (có thể mất vài phút)...")
+            
+            # Đây là lệnh gọi tốn thời gian
+            paths = prepare_contract_paths(mp) 
+            
+            print(f"--- Tính toán xong. Đang lưu vào file cache để dùng cho lần sau...")
+            
+            # Lưu kết quả vào file
+            with open(filepath, 'wb') as f:
+                pickle.dump(paths, f)
+                
+            print(f"--- Đã lưu paths vào: {filepath}")
+            return paths
+
+    except Exception as e:
+        print(f"Lỗi nghiêm trọng trong quá trình load/save cache: {e}")
+        print("--- Chạy tính toán paths mà không dùng cache ---")
+        # Dự phòng: Nếu có lỗi (ví dụ: không có quyền ghi file),
+        # thì chạy tính toán như bình thường mà không lưu
+        return prepare_contract_paths(mp)
+    
+@jit(nopython=True) # Biên dịch hàm này sang mã máy
+def sum_occ_diag(matrix_kpts, nocc, nkpts, factor):
+    '''
+    Hàm JIT hóa để tính tổng các phần tử đường chéo 
+    của các orbital bị chiếm đóng (occupied).
+    '''
+    total_sum = 0.0
+    for k in range(nkpts):
+        for i in range(nocc):
+            # Dùng .real vì Numba cần biết kiểu dữ liệu rõ ràng
+            total_sum += factor * matrix_kpts[k][i, i].real
+            
+    return total_sum
 
 def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
            verbose=logger.NOTE):
@@ -225,14 +309,14 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
     nmo = mp.nmo # Số orbital phân tử
     nkpts = numpy.shape(mo_energy)[0] # Số điểm k
     nocc = mp.nocc # Số orbital chiếm đóng
-    nvir = nmo - nocc
+    #nvir = nmo - nocc
     niter = mp.niter # Số vòng lặp tối đa
     ene_old = 0.  # Năng lượng ban đầu
     dm = mp._scf.make_rdm1(mo_coeff, mo_occ) # Ma trận mật độ
     
     # Chuẩn bị DIIS (Direct Inversion in the Iterative Subspace) <Tìm hiểu sau>
-    DIIS_RESID = [[] for _ in range(nkpts)]
-    F_list = [[] for _ in range(nkpts)]
+    #DIIS_RESID = [[] for _ in range(nkpts)]
+    #F_list = [[] for _ in range(nkpts)]
 
     # Khởi tạo quá trình OBMP2
     print()
@@ -247,7 +331,7 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
     '''
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3] # Thêm mili giây.
     
-    paths = prepare_contract_paths(mp)
+    paths = get_or_create_contract_paths(mp)
     (path_pj, path_bp, path_bj, path_sum_3,
      path_jb, path_ck, path_iakb, path_lj, path_ki,
      path_bd, path_sum, path_ialb, path_lj_2, path_ac_2,
@@ -258,14 +342,17 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
           paths['bd_2'], paths['sum_2'], paths['ki_3'], paths['ac_3']
     )
 
+    '''
+    a. Xây dựng Hamiltonian và potential hiệu dụng
+    '''
+    h1ao = mp._scf.get_hcore() # Tính toán ma trận Hamiltonian lõi (h1ao) trong không gian orbital nguyên tử (AO)
+    veffao = mp._scf.get_veff(mp._scf.cell, dm) # Tính toán thế năng hiệu dụng (veffao) dựa trên ma trận mật độ hiện tại
+
     for it in range(niter):
 
         '''
         a. Xây dựng Hamiltonian và potential hiệu dụng
         '''
-
-        h1ao = mp._scf.get_hcore() # Tính toán ma trận Hamiltonian lõi (h1ao) trong không gian orbital nguyên tử (AO)
-        veffao = mp._scf.get_veff(mp._scf.cell, dm) # Tính toán thế năng hiệu dụng (veffao) dựa trên ma trận mật độ hiện tại
         
         #
         #h1mo = numpy.zeros((nkpts, nmo, nmo), dtype=complex)
@@ -286,12 +373,17 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         veff= [reduce(numpy.dot, (mo.T.conj(), veffao[k], mo))
                                 for k, mo in enumerate(mp.mo_coeff)]
         
+        '''
         # Tính hằng số c0_hf
         c0_hf = 0
         for kp in range(nkpts):
             for i in range(nocc):
                 c0_hf -=  veff[kp][i,i].real
         c0_hf/= nkpts
+        '''
+
+        # Yếu tố factor là -1.0 và phép chia /nkpts đã được đưa vào hàm
+        c0_hf = sum_occ_diag(veff, nocc, nkpts, -1.0) / nkpts
 
         #fock_hf = h1mo
         #fock_hf += veff
@@ -302,7 +394,7 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         fock_hf += [reduce(numpy.dot, (mo.T.conj(), h1ao[k], mo))
                                 for k, mo in enumerate(mp.mo_coeff)]
         numpy.set_printoptions(precision=6)
-        fockao = h1ao + veffao
+        #fockao = h1ao + veffao
         #print("fock_hf")
         #print(fock_hf[0])
         #initializing w/ HF
@@ -313,13 +405,18 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         '''
         c. Tính năng lượng Hartree-Fock
         '''
-
+        '''
         ene_hf = 0
         for k in range(nkpts):
             for i in range(nocc):
                 ene_hf += 2*fock[k][i,i].real/nkpts
 
         ene_hf +=c0_hf + nuc 
+        '''
+
+        ene_hf_elec = sum_occ_diag(fock, nocc, nkpts, 2.0) / nkpts
+        ene_hf = ene_hf_elec + c0_hf + nuc   
+
         # Năng lượng Hartree-Fock = năng lượng điện tử + năng lượng hạt nhân
         # <Cần phải xem lại coi c0_hf là năng lượng gì?>
 
@@ -364,12 +461,19 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         e. Tính năng lượng tổng
         '''
 
+        '''
         ene = 0
         for k in range(nkpts):
             for i in range(nocc):
                 ene += 2*fock[k][i,i].real/nkpts
 
         ene_tot = ene + c0  + nuc + c0_1st 
+        '''
+
+        # Yếu tố factor là 2.0
+        ene = sum_occ_diag(fock, nocc, nkpts, 2.0) / nkpts
+        ene_tot = ene + c0  + nuc + c0_1st
+
         print('e_corr = ',ene_tot - ene_hf) 
 
         '''
@@ -384,9 +488,9 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         tracemalloc.start(25)
         snapshot = tracemalloc.take_snapshot()
         top_stats = snapshot.statistics('lineno')
-        stat = top_stats[:10]
+        #stat = top_stats[:10]
         total_mem = sum(stat.size for stat in top_stats)
-        print()
+        print("total_mem = ",total_mem)
         print('iter = %d'%it, ' ene = %8.8f'%ene_tot, ' ene diff = %8.8f'%de, flush=True)
         #print("Total allocated size: %.3f Mb" % (total_mem / 1024**2))
         print(mo_energy[0])
@@ -525,12 +629,17 @@ def make_veff(mp, mo_coeff, mo_energy):
     
     for kp in range(nkpts):
         veff[kp] = numpy.matmul(mo_coeff[kp].T.conj(),numpy.matmul(veff_ao[kp], mo_coeff[kp]))
-    
+
+    '''
     c0_hf = 0
     for kp in range(nkpts):
         for i in range(nocc):
             c0_hf -=  veff[kp][i,i].real
     c0_hf/= nkpts
+    '''
+
+    # Yếu tố factor là -1.0 và phép chia /nkpts đã được đưa vào hàm
+    c0_hf = sum_occ_diag(veff, nocc, nkpts, -1.0) / nkpts
     
     return veff_ao, veff, c0_hf
 
@@ -698,253 +807,281 @@ def BCH(mp, mo_energy, mo_coeff, fock_hf,
     
     # Định nghĩa batch size cho ki và kj
     batch_size = 10  # (NEW) Có thể điều chỉnh tùy theo RAM
-
+    
+    '''
     # Tạo thư mục tạm trên ổ đĩa cứng để lưu dữ liệu
     temp_dir = "./tmp_arrays"
+    '''
+
+    temp_dir = os.environ.get('TMPDIR', './tmp_arrays')
+    print(f"Sử dụng thư mục tạm: {temp_dir}") # (SỬA) Thêm log để kiểm tra
+
+    # Tạo thư mục tạm nếu chưa có
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
     
-    # Tạo file HDF5 để lưu tmp1 và tmp1_bar
-    h5_file = os.path.join(temp_dir, f"tmp_arrays_{timestamp}.h5")
-    # File lưu tích phân h2mo_ovgg (phase 1) (Cái mới thêm vào)
-    h5_int_file = os.path.join(temp_dir, f"h2mo_ovgg_{timestamp}.h5")
+    try:
 
-    # Khởi tạo các biến tích lũy
-    # Các biến không tích lũy sẽ được khởi tạo sau
-    c1 = numpy.zeros((nkpts, nkpts, nmo, nmo), dtype=complex)
-    c0_1st = 0.0
-    IP = 0.0
-    EA = 0.0
-    
-    print('#################################################')
-    print('# Phần 1: Tính và lưu toàn bộ h2mo_ovgg (batch) #')
-    print('#################################################')
+        # Tạo file HDF5 để lưu tmp1 và tmp1_bar
+        h5_file = os.path.join(temp_dir, f"tmp_arrays_{timestamp}.h5")
+        # File lưu tích phân h2mo_ovgg (phase 1) (Cái mới thêm vào)
+        h5_int_file = os.path.join(temp_dir, f"h2mo_ovgg_{timestamp}.h5")
 
-    # Phần 1: tính toàn bộ h2mo_ovgg và ghi xuống đĩa
-    with h5py.File(h5_int_file, 'w') as fint:
-        dset_h2mo_ovgg = fint.create_dataset(
-            'h2mo_ovgg',
-            (nkpts, nkpts, nkpts, nocc, nvir, nmo, nmo),
-            dtype=complex,
-            chunks=(1, 1, 1, nocc, nvir, nmo, nmo),
-            compression='gzip'
-        )
-    
-        for ki_start in range(0, nkpts, batch_size):
-            ki_end = min(ki_start + batch_size, nkpts)
-            batch_ki_size = ki_end - ki_start
+        # Khởi tạo các biến tích lũy
+        # Các biến không tích lũy sẽ được khởi tạo sau
+        c1 = numpy.zeros((nkpts, nkpts, nmo, nmo), dtype=complex)
+        c0_1st = 0.0
+        IP = 0.0
+        EA = 0.0
 
-            for kj_start in range(0, nkpts, batch_size):
-                kj_end = min(kj_start + batch_size, nkpts)
-                batch_kj_size = kj_end - kj_start
+        print('#################################################')
+        print('# Phần 1: Tính và lưu toàn bộ h2mo_ovgg (batch) #')
+        print('#################################################')
 
-                print(f"[Phần 1] Batch ki=[{ki_start}:{ki_end}], kj=[{kj_start}:{kj_end}]")
+        # Phần 1: tính toàn bộ h2mo_ovgg và ghi xuống đĩa
+        with h5py.File(h5_int_file, 'w') as fint:
+            dset_h2mo_ovgg = fint.create_dataset(
+                'h2mo_ovgg',
+                (nkpts, nkpts, nkpts, nocc, nvir, nmo, nmo),
+                dtype=complex,
+                chunks=(1, 1, 1, nocc, nvir, nmo, nmo),
+                compression='gzip'
+            )
 
-                for ki in range(ki_start, ki_end):
-                    o_i = mo_coeff[ki][:, :nocc]
-                    for kj in range(kj_start, kj_end):
-                        kp = kj
-                        o_p = mo_coeff[kp]
-                        for ka in range(nkpts):
-                            kb = kconserv[ki, ka, kj]
-                            kq = kb
-                            o_a = mo_coeff[ka][:, nocc:]
-                            o_q = mo_coeff[kq]
-                            print(f"[Phần 1] 9. Processing k-points: ki={ki}, kj={kj}, ka={ka}, kb={kb}")
-                            dset_h2mo_ovgg[ki, ka, kj] = fao2mo(
-                                (o_i, o_a, o_p, o_q),
-                                (kpts[ki], kpts[ka], kpts[kp], kpts[kq]),
-                                compact=False
-                            ).reshape(nocc, nvir, nmo, nmo) / nkpts
-                            
-    print('#################################################')
-    print('# Phần 2: Đọc h2mo_ovgg, cắt và tính amplitudes #')
-    print('#################################################')
+            for ki_start in range(0, nkpts, batch_size):
+                ki_end = min(ki_start + batch_size, nkpts)
+                batch_ki_size = ki_end - ki_start
 
-    # PHẦN 1: Tính toán và lưu tmp1, tmp1_bar
-    
-    # Tạo file HDF5 để lưu kết quả (do dữ liệu quá lớn để lưu trong RAM)
-    # Tại sao lại phải lưu h2mo_ovgg vào 1 file riêng (h5_int_file) và tmp1, tmp1_bar vào một file riêng khác (h5_file)?
-    # => Đó là vì ở bước tính c1, ma trận h2mo_ovgg cần được trích xuất ra (đọc file h5_int_file), còn hai ma trận tmp1, tmp1_bar
-    # thì cần được lưu vào (ghi file h5_file)
-    with h5py.File(h5_file, 'w') as famp, h5py.File(h5_int_file, 'r') as fint:
-        # Tạo dataset cho tmp1 và tmp1_bar
-        tmp1_dset = famp.create_dataset('tmp1', 
-                                     (nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), 
-                                     dtype=complex,
-                                     chunks=(1, 1, 1, nocc, nvir, nocc, nvir),
-                                     compression='gzip')
-        tmp1_bar_dset = famp.create_dataset('tmp1_bar', 
+                for kj_start in range(0, nkpts, batch_size):
+                    kj_end = min(kj_start + batch_size, nkpts)
+                    batch_kj_size = kj_end - kj_start
+
+                    print(f"[Phần 1] Batch ki=[{ki_start}:{ki_end}], kj=[{kj_start}:{kj_end}]")
+
+                    for ki in range(ki_start, ki_end):
+                        o_i = mo_coeff[ki][:, :nocc]
+                        for kj in range(kj_start, kj_end):
+                            kp = kj
+                            o_p = mo_coeff[kp]
+                            for ka in range(nkpts):
+                                kb = kconserv[ki, ka, kj]
+                                kq = kb
+                                o_a = mo_coeff[ka][:, nocc:]
+                                o_q = mo_coeff[kq]
+                                print(f"[Phần 1] 9. Processing k-points: ki={ki}, kj={kj}, ka={ka}, kb={kb}")
+                                dset_h2mo_ovgg[ki, ka, kj] = fao2mo(
+                                    (o_i, o_a, o_p, o_q),
+                                    (kpts[ki], kpts[ka], kpts[kp], kpts[kq]),
+                                    compact=False
+                                ).reshape(nocc, nvir, nmo, nmo) / nkpts
+
+        print('#################################################')
+        print('# Phần 2: Đọc h2mo_ovgg, cắt và tính amplitudes #')
+        print('#################################################')
+
+        # PHẦN 1: Tính toán và lưu tmp1, tmp1_bar
+
+        # Tạo file HDF5 để lưu kết quả (do dữ liệu quá lớn để lưu trong RAM)
+        # Tại sao lại phải lưu h2mo_ovgg vào 1 file riêng (h5_int_file) và tmp1, tmp1_bar vào một file riêng khác (h5_file)?
+        # => Đó là vì ở bước tính c1, ma trận h2mo_ovgg cần được trích xuất ra (đọc file h5_int_file), còn hai ma trận tmp1, tmp1_bar
+        # thì cần được lưu vào (ghi file h5_file)
+        with h5py.File(h5_file, 'w') as famp, h5py.File(h5_int_file, 'r') as fint:
+            # Tạo dataset cho tmp1 và tmp1_bar
+            tmp1_dset = famp.create_dataset('tmp1', 
                                          (nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), 
                                          dtype=complex,
                                          chunks=(1, 1, 1, nocc, nvir, nocc, nvir),
                                          compression='gzip')
+            tmp1_bar_dset = famp.create_dataset('tmp1_bar', 
+                                             (nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), 
+                                             dtype=complex,
+                                             chunks=(1, 1, 1, nocc, nvir, nocc, nvir),
+                                             compression='gzip')
 
-        # Batch giống phase ban đầu: trên ki,kj
-        # Chia vòng lặp ki thành các batch
-        for ki_start in range(0, nkpts, batch_size): # VD nkpts = 8, batch_size = 2 thì range(0, 8, 2) = [0, 2, 4, 6]
-            ki_end = min(ki_start + batch_size, nkpts) 
-            batch_ki_size = ki_end - ki_start
+            # Batch giống phase ban đầu: trên ki,kj
+            # Chia vòng lặp ki thành các batch
+            for ki_start in range(0, nkpts, batch_size): # VD nkpts = 8, batch_size = 2 thì range(0, 8, 2) = [0, 2, 4, 6]
+                ki_end = min(ki_start + batch_size, nkpts) 
+                batch_ki_size = ki_end - ki_start
 
-            # VD nkpts = 8, batch_size = 2 thì ki_end = [2, 4, 6, 8], 
-            #ngoài ra hàm min(_,nkpts) đảm bảo rằng giá trị lớn nhất là nkpts
+                # VD nkpts = 8, batch_size = 2 thì ki_end = [2, 4, 6, 8], 
+                #ngoài ra hàm min(_,nkpts) đảm bảo rằng giá trị lớn nhất là nkpts
 
-            # Chia vòng lặp kj thành các batch
-            for kj_start in range(0, nkpts, batch_size): # tương tự ki_start
-                kj_end = min(kj_start + batch_size, nkpts) # tương tự ki_end
-                batch_kj_size = kj_end - kj_start
+                # Chia vòng lặp kj thành các batch
+                for kj_start in range(0, nkpts, batch_size): # tương tự ki_start
+                    kj_end = min(kj_start + batch_size, nkpts) # tương tự ki_end
+                    batch_kj_size = kj_end - kj_start
 
-                # Khởi tạo các mảng tạm cho batch hiện tại
-                # Khúc này xác định lại khoảng giữa ki_end và ki_start, có thể bạn thấy hơi thừa vì mình đã
-                # xác định lại khoảng giữa ki_end và ki_start ở trên (biến batch_size),
-                # nhưng sẽ có trường hợp mà ki_end hoặc kj_end đặt đến giá trị của nkpts, nhưng ki_end - ki_start
-                # lại nhỏ hơn batch_size.
-                # VD: nkpts = 8, batch_size = 6 => [ki_start = 0, ki_end = 6], [ki_start = 6, kj_end = 8], 
-                # rõ ràng batch_size của bộ cuối là số 2 KHÁC số 6.
+                    # Khởi tạo các mảng tạm cho batch hiện tại
+                    # Khúc này xác định lại khoảng giữa ki_end và ki_start, có thể bạn thấy hơi thừa vì mình đã
+                    # xác định lại khoảng giữa ki_end và ki_start ở trên (biến batch_size),
+                    # nhưng sẽ có trường hợp mà ki_end hoặc kj_end đặt đến giá trị của nkpts, nhưng ki_end - ki_start
+                    # lại nhỏ hơn batch_size.
+                    # VD: nkpts = 8, batch_size = 6 => [ki_start = 0, ki_end = 6], [ki_start = 6, kj_end = 8], 
+                    # rõ ràng batch_size của bộ cuối là số 2 KHÁC số 6.
 
-                # Tính toán tích phân 2 electron cho batch hiện tại
-                # Tại sao lại phải có 2 biến ki_idx, ki?
-                # -> Đó là do tính chất của hàm enumerate, dưới đây là 1 code ví dụ:
-                '''
-                names = ['Bob', 'Alice', 'Guido']
-                for index, value in enumerate(names):
-                    print(f'{index}: {value}')
+                    # Tính toán tích phân 2 electron cho batch hiện tại
+                    # Tại sao lại phải có 2 biến ki_idx, ki?
+                    # -> Đó là do tính chất của hàm enumerate, dưới đây là 1 code ví dụ:
+                    '''
+                    names = ['Bob', 'Alice', 'Guido']
+                    for index, value in enumerate(names):
+                        print(f'{index}: {value}')
 
-                //output: 
-                0: Bob
-                1: Alice
-                2: Guido
+                    //output: 
+                    0: Bob
+                    1: Alice
+                    2: Guido
 
-                x = range(0, 8, 6)
-                z = enumerate(range(6, 8))
-                for n,i in z:
-	                print(f"i_1={n}")
-	                print(f"i={i}")
-                
-                //output:
-                i_1=0
-                i=6
-                i_1=1
-                i=7
-                '''
+                    x = range(0, 8, 6)
+                    z = enumerate(range(6, 8))
+                    for n,i in z:
+	                    print(f"i_1={n}")
+	                    print(f"i={i}")
 
-                print(f"[Phần 2] Processing batch: ki=[{ki_start}:{ki_end}], kj=[{kj_start}:{kj_end}]")
+                    //output:
+                    i_1=0
+                    i=6
+                    i_1=1
+                    i=7
+                    '''
 
-                # Khởi tạo mảng batch cho tmp1 / tmp1_bar
-                tmp1_batch = numpy.zeros(
-                    (batch_ki_size, nkpts, batch_kj_size, nocc, nvir, nocc, nvir),
-                    dtype=complex
-                )
-                tmp1_bar_batch = numpy.zeros_like(tmp1_batch)
+                    print(f"[Phần 2] Processing batch: ki=[{ki_start}:{ki_end}], kj=[{kj_start}:{kj_end}]")
 
-                ki_1 = -1
-                kj_1 = -1
+                    # Khởi tạo mảng batch cho tmp1 / tmp1_bar
+                    tmp1_batch = numpy.zeros(
+                        (batch_ki_size, nkpts, batch_kj_size, nocc, nvir, nocc, nvir),
+                        dtype=complex
+                    )
+                    tmp1_bar_batch = numpy.zeros_like(tmp1_batch)
 
-                # h2mo_ovov[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:nocc, nocc:] 
-                # h2mo_ovgv[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:, nocc:]
-                # h2mo_ovog[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:nocc, :]
-                # h2mo_ovvv[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,nocc:,nocc:]
-                # h2mo_ovoo[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:nocc,:nocc]
+                    ki_1 = -1
+                    kj_1 = -1
 
-                for ki_idx, ki in enumerate(range(ki_start, ki_end)): 
-                    for kj_idx, kj in enumerate(range(kj_start, kj_end)):
-                        for ka in range(nkpts):
-                            kb = kconserv[ki,ka,kj]
-                            print(f"[PHASE 2] 18. Processing: ki={ki}, kj={kj}, ka={ka}, kb={kb}")
+                    # h2mo_ovov[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:nocc, nocc:] 
+                    # h2mo_ovgv[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:, nocc:]
+                    # h2mo_ovog[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:nocc, :]
+                    # h2mo_ovvv[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,nocc:,nocc:]
+                    # h2mo_ovoo[ki_idx,ka,kj_idx] = h2mo_ovgg[ki_idx,ka,kj_idx][:,:,:nocc,:nocc]
 
-                            # Đọc block h2mo_ovgg tương ứng
-                            block_ovgg = fint['h2mo_ovgg'][ki, ka, kj]  # shape (nocc,nvir,nmo,nmo)
+                    for ki_idx, ki in enumerate(range(ki_start, ki_end)): 
+                        for kj_idx, kj in enumerate(range(kj_start, kj_end)):
+                            for ka in range(nkpts):
+                                kb = kconserv[ki,ka,kj]
+                                print(f"[PHASE 2] 18. Processing: ki={ki}, kj={kj}, ka={ka}, kb={kb}")
 
-                            # Cắt theo yêu cầu (mọi thao tác cắt đều dưới 3 vòng for)
-                            h2mo_ovov = block_ovgg[:, :, :nocc,  nocc:]   # (nocc,nvir,nocc,nvir)
-                            h2mo_ovgv = block_ovgg[:, :, :,      nocc:]   # (nocc,nvir,nmo,nvir)
-                            h2mo_ovog = block_ovgg[:, :, :nocc,  :]       # (nocc,nvir,nocc,nmo)
-                            h2mo_ovvv = block_ovgg[:, :, nocc:,  nocc:]   # (nocc,nvir,nvir,nvir)
-                            h2mo_ovoo = block_ovgg[:, :, :nocc,  :nocc]   # (nocc,nvir,nocc,nocc)
+                                # Đọc block h2mo_ovgg tương ứng
+                                block_ovgg = fint['h2mo_ovgg'][ki, ka, kj]  # shape (nocc,nvir,nmo,nmo)
 
-                            # Cắt h2mo_ovoo[kj,ka,ki] phục vụ w_iajh (theo yêu cầu)
-                            block_ovgg_kj_ka_ki = fint['h2mo_ovgg'][kj, ka, ki]
-                            h2mo_ovoo_kj_ka_ki = block_ovgg_kj_ka_ki[:, :, :nocc, :nocc]
+                                # Cắt theo yêu cầu (mọi thao tác cắt đều dưới 3 vòng for)
+                                h2mo_ovov = block_ovgg[:, :, :nocc,  nocc:]   # (nocc,nvir,nocc,nvir)
+                                h2mo_ovgv = block_ovgg[:, :, :,      nocc:]   # (nocc,nvir,nmo,nvir)
+                                h2mo_ovog = block_ovgg[:, :, :nocc,  :]       # (nocc,nvir,nocc,nmo)
+                                h2mo_ovvv = block_ovgg[:, :, nocc:,  nocc:]   # (nocc,nvir,nvir,nvir)
+                                h2mo_ovoo = block_ovgg[:, :, :nocc,  :nocc]   # (nocc,nvir,nocc,nocc)
 
-                            e_iajb, e_iajh, e_ialb = ene_denom(mp, mo_energy, ki, ka, kj, kb) # Đúng
+                                # Cắt h2mo_ovoo[kj,ka,ki] phục vụ w_iajh (theo yêu cầu)
+                                block_ovgg_kj_ka_ki = fint['h2mo_ovgg'][kj, ka, ki]
+                                h2mo_ovoo_kj_ka_ki = block_ovgg_kj_ka_ki[:, :, :nocc, :nocc]
 
-                            # w_iajb
-                            w_iajb = (h2mo_ovov - 0.5 * h2mo_ovov.transpose(0, 3, 2, 1)
-                                      if kb == ka else
-                                      (h2mo_ovov - 0.5 * fint['h2mo_ovgg'][ki, kb, kj][:, :, :nocc, nocc:].transpose(0, 3, 2, 1)))
-                            # w_iajb = (h2mo_ovov[ki,ka,kj] - 0.5*h2mo_ovov[ki,kb,kj].transpose(0,3,2,1))
+                                e_iajb, e_iajh, e_ialb = ene_denom(mp, mo_energy, ki, ka, kj, kb) # Đúng
 
-                            #tmp1[ki_idx,ka,kj_idx] = (h2mo_ovov[ki_idx,ka,kj_idx]/e_iajb).conj()
-                            #tmp1_bar[ki_idx,ka,kj_idx] = (w_iajb/e_iajb).conj()
+                                # w_iajb
+                                w_iajb = (h2mo_ovov - 0.5 * h2mo_ovov.transpose(0, 3, 2, 1)
+                                          if kb == ka else
+                                          (h2mo_ovov - 0.5 * fint['h2mo_ovgg'][ki, kb, kj][:, :, :nocc, nocc:].transpose(0, 3, 2, 1)))
+                                # w_iajb = (h2mo_ovov[ki,ka,kj] - 0.5*h2mo_ovov[ki,kb,kj].transpose(0,3,2,1))
 
-                            tmp1_batch[ki_idx,ka,kj_idx] = (h2mo_ovov / e_iajb).conj()
-                            tmp1_bar_batch[ki_idx,ka,kj_idx] = (w_iajb / e_iajb).conj()
+                                #tmp1[ki_idx,ka,kj_idx] = (h2mo_ovov[ki_idx,ka,kj_idx]/e_iajb).conj()
+                                #tmp1_bar[ki_idx,ka,kj_idx] = (w_iajb/e_iajb).conj()
 
-                            # w_iajh: dùng h2mo_ovoo[ki,ka,kj] và h2mo_ovoo[kj,ka,ki]
-                            w_iajh = (h2mo_ovoo - 0.5 * h2mo_ovoo_kj_ka_ki.transpose(2, 1, 0, 3))
-                            #w_iajh = (h2mo_ovoo[ki,ka,kj]-0.5*h2mo_ovoo[kj,ka,ki].transpose(2,1,0,3))
-                            tmp1_bar_iajh = (w_iajh / e_iajh).conj()
+                                tmp1_batch[ki_idx,ka,kj_idx] = (h2mo_ovov / e_iajb).conj()
+                                tmp1_bar_batch[ki_idx,ka,kj_idx] = (w_iajb / e_iajb).conj()
 
-                            w_ialb = (h2mo_ovvv - 0.5 * h2mo_ovvv.transpose(0,3,2,1)
-                                      if kb == ka else 
-                                      h2mo_ovvv - 0.5 * fint['h2mo_ovgg'][ki, kb, kj][:, :, nocc:,  nocc:].transpose(0,3,2,1)) # Đúng
-                            #w_ialb = (h2mo_ovvv[ki,ka,kj]-0.5*h2mo_ovvv[ki,kb,kj].transpose(0,3,2,1))
-                            tmp1_bar_ialb = (w_ialb/e_ialb).conj() # Đúng
+                                # w_iajh: dùng h2mo_ovoo[ki,ka,kj] và h2mo_ovoo[kj,ka,ki]
+                                w_iajh = (h2mo_ovoo - 0.5 * h2mo_ovoo_kj_ka_ki.transpose(2, 1, 0, 3))
+                                #w_iajh = (h2mo_ovoo[ki,ka,kj]-0.5*h2mo_ovoo[kj,ka,ki].transpose(2,1,0,3))
+                                tmp1_bar_iajh = (w_iajh / e_iajh).conj()
 
-                            mp.ampf = 0.5
-                            tmp1_batch[ki_idx,ka,kj_idx] *= mp.ampf
-                            tmp1_bar_batch[ki_idx,ka,kj_idx] *= mp.ampf
-                            tmp1_bar_iajh *= mp.ampf
-                            tmp1_bar_ialb *= mp.ampf # Đúng
+                                w_ialb = (h2mo_ovvv - 0.5 * h2mo_ovvv.transpose(0,3,2,1)
+                                          if kb == ka else 
+                                          h2mo_ovvv - 0.5 * fint['h2mo_ovgg'][ki, kb, kj][:, :, nocc:,  nocc:].transpose(0,3,2,1)) # Đúng
+                                #w_ialb = (h2mo_ovvv[ki,ka,kj]-0.5*h2mo_ovvv[ki,kb,kj].transpose(0,3,2,1))
+                                tmp1_bar_ialb = (w_ialb/e_ialb).conj() # Đúng
 
-                            # Lưu vào HDF5 (mới) 
-                            tmp1_dset[ki,ka,kj] = tmp1_batch[ki_idx,ka,kj_idx]
-                            tmp1_bar_dset[ki,ka,kj] = tmp1_bar_batch[ki_idx,ka,kj_idx]
+                                mp.ampf = 0.5
+                                tmp1_batch[ki_idx,ka,kj_idx] *= mp.ampf
+                                tmp1_bar_batch[ki_idx,ka,kj_idx] *= mp.ampf
+                                tmp1_bar_iajh *= mp.ampf
+                                tmp1_bar_ialb *= mp.ampf # Đúng
 
-                            if kb == 0:
-                                IP += 2 * numpy.einsum('iaj, iaj ->',
-                                                       tmp1_bar_iajh[:, :, :, nocc-1],
-                                                       h2mo_ovoo[:, :, :, nocc-1]).real
-                                #IP += 2*numpy.einsum('iaj, iaj ->',tmp1_bar_iajh[:,:,:,nocc-1],h2mo_ovoo[ki,ka,kj,:,:,:,nocc-1]).real
+                                # Lưu vào HDF5 (mới) 
+                                tmp1_dset[ki,ka,kj] = tmp1_batch[ki_idx,ka,kj_idx]
+                                tmp1_bar_dset[ki,ka,kj] = tmp1_bar_batch[ki_idx,ka,kj_idx]
 
-                            if kj == 0:
-                                h2mo_ovvv_ki_ka_0 = fint['h2mo_ovgg'][ki, ka, 0][:, :, nocc:,  nocc:]
-                                EA += -2*numpy.einsum('iab, iab ->',
-                                                      tmp1_bar_ialb[:,:,0,:],
-                                                      h2mo_ovvv_ki_ka_0[:,:,0,:]).real # Hiện tại đang chạy chính xác
-                                #EA += -2*numpy.einsum('iab, iab ->',tmp1_bar_ialb[:,:,0,:],h2mo_ovvv[ki,ka,0,:,:,0,:]).real
-                                del h2mo_ovvv_ki_ka_0 # Giải phóng bộ nhớ ngay sau khi sử dụng xong
+                                if kb == 0:
+                                    IP += 2 * numpy.einsum('iaj, iaj ->',
+                                                           tmp1_bar_iajh[:, :, :, nocc-1],
+                                                           h2mo_ovoo[:, :, :, nocc-1]).real
+                                    #IP += 2*numpy.einsum('iaj, iaj ->',tmp1_bar_iajh[:,:,:,nocc-1],h2mo_ovoo[ki,ka,kj,:,:,:,nocc-1]).real
 
-                            c1[kj,kj,:,:nocc] += 2 * oe.contract('iajb, iapb -> pj',
-                                                             tmp1_bar_batch[ki_idx,ka,kj_idx],
-                                                             h2mo_ovgv, 
-                                                             optimize=path_pj)
+                                if kj == 0:
+                                    h2mo_ovvv_ki_ka_0 = fint['h2mo_ovgg'][ki, ka, 0][:, :, nocc:,  nocc:]
+                                    EA += -2*numpy.einsum('iab, iab ->',
+                                                          tmp1_bar_ialb[:,:,0,:],
+                                                          h2mo_ovvv_ki_ka_0[:,:,0,:]).real # Hiện tại đang chạy chính xác
+                                    #EA += -2*numpy.einsum('iab, iab ->',tmp1_bar_ialb[:,:,0,:],h2mo_ovvv[ki,ka,0,:,:,0,:]).real
+                                    del h2mo_ovvv_ki_ka_0 # Giải phóng bộ nhớ ngay sau khi sử dụng xong
 
-                            c1[kb,kb,nocc:,:] -= 2 * oe.contract('iajb, iajp -> bp',
-                                                              tmp1_bar_batch[ki_idx,ka,kj_idx],
-                                                              h2mo_ovog, 
-                                                              optimize=path_bp)  
+                                c1[kj,kj,:,:nocc] += 2 * oe.contract('iajb, iapb -> pj',
+                                                                 tmp1_bar_batch[ki_idx,ka,kj_idx],
+                                                                 h2mo_ovgv, 
+                                                                 optimize=path_pj)
 
-                            if ki != ki_1 or kj != kj_1:
-                                ki_1 = ki
-                                kj_1 = kj
-                                r = kconserv[ki,ki,kj]
-                                c1[r,kj,nocc:,:nocc] += 2*oe.contract('ai, iajb -> bj',
-                                                                    fock_hf[ki,nocc:,:nocc].conj(),
-                                                                    tmp1_bar_batch[ki_idx,ki,kj_idx], 
-                                                                    optimize=path_bj) # Cần kiểm tra lại
+                                c1[kb,kb,nocc:,:] -= 2 * oe.contract('iajb, iajp -> bp',
+                                                                  tmp1_bar_batch[ki_idx,ka,kj_idx],
+                                                                  h2mo_ovog, 
+                                                                  optimize=path_bp)  
 
-                            c0_1st += -4*oe.contract('iajb, iajb ->',
-                                                   tmp1_bar_batch[ki_idx,ka,kj_idx], 
-                                                   h2mo_ovov, 
-                                                   optimize = path_sum_3)
+                                if ki != ki_1 or kj != kj_1:
+                                    ki_1 = ki
+                                    kj_1 = kj
+                                    r = kconserv[ki,ki,kj]
+                                    c1[r,kj,nocc:,:nocc] += 2*oe.contract('ai, iajb -> bj',
+                                                                        fock_hf[ki,nocc:,:nocc].conj(),
+                                                                        tmp1_bar_batch[ki_idx,ki,kj_idx], 
+                                                                        optimize=path_bj) # Cần kiểm tra lại
 
-                # Giải phóng bộ nhớ sau mỗi batch
-                del tmp1_batch, tmp1_bar_batch
-                del block_ovgg, h2mo_ovov, h2mo_ovog, h2mo_ovgv, h2mo_ovoo, h2mo_ovvv, h2mo_ovoo_kj_ka_ki # Lỗi ở dòng này
+                                c0_1st += -4*oe.contract('iajb, iajb ->',
+                                                       tmp1_bar_batch[ki_idx,ka,kj_idx], 
+                                                       h2mo_ovov, 
+                                                       optimize = path_sum_3)
 
-                #del block_ovgg, h2mo_ovov, h2mo_ovog, h2mo_ovgv, h2mo_ovoo, h2mo_ovvv, h2mo_ovvv_ki_ka_0, h2mo_ovoo_kj_ka_ki # Lỗi ở dòng này
-                # Lỗi chính là không có ma trận h2mo_ovvv_ki_ka_0 để xóa
+                    # Giải phóng bộ nhớ sau mỗi batch
+                    del tmp1_batch, tmp1_bar_batch
+                    del block_ovgg, h2mo_ovov, h2mo_ovog, h2mo_ovgv, h2mo_ovoo, h2mo_ovvv, h2mo_ovoo_kj_ka_ki # Lỗi ở dòng này
+
+                    #del block_ovgg, h2mo_ovov, h2mo_ovog, h2mo_ovgv, h2mo_ovoo, h2mo_ovvv, h2mo_ovvv_ki_ka_0, h2mo_ovoo_kj_ka_ki # Lỗi ở dòng này
+                    # Lỗi chính là không có ma trận h2mo_ovvv_ki_ka_0 để xóa
+    
+    finally:
+        print('#################################################')
+        print(f'# BẮT ĐẦU DỌN DẸP FILE TẠM TRONG {temp_dir} #')
+        print('#################################################')
+        
+        # Xóa file tích phân h2mo_ovgg
+        try:
+            if os.path.exists(h5_int_file):
+                os.remove(h5_int_file)
+                print(f"Đã xóa thành công: {h5_int_file}")
+            else:
+                print(f"File không tồn tại, không cần xóa: {h5_int_file}")
+        except (IOError, OSError) as e: # Bắt các lỗi có thể xảy ra khi xóa file
+            print(f"Lỗi khi đang xóa file {h5_int_file}: {e}")
+            
+        print('#################################################')
+        print(f'# KẾT THÚC DỌN DẸP FILE TẠM                #')
+        print('#################################################')
             
     print(f"IP: {IP}, EA: {EA}")
     print(f"Running time {time.time() - star} seconds")
@@ -957,175 +1094,193 @@ def BCH(mp, mo_energy, mo_coeff, fock_hf,
     c0_2nd = 0.0
     c2 = numpy.zeros((nkpts, nkpts, nmo,nmo), dtype=complex)
 
-    if mp.second_order:
-        # Mở file HDF5 ở chế độ đọc
-        with h5py.File(h5_file, 'r') as f:
-            tmp1_dset = f['tmp1']
-            tmp1_bar_dset = f['tmp1_bar']
-            
-            # Tính toán y1
-            y1 = numpy.zeros((nkpts, nkpts, nocc, nvir), dtype=complex)
-            
-            for ki in range(nkpts):
-                for kj in range(nkpts):
-                    kb = kconserv[ki, ki, kj]
-                    # Load tmp1_bar[ki, ki, kj] từ HDF5
-                    tmp1_bar_data = tmp1_bar_dset[ki, ki, kj]
-                    y1[kj, kb, :, :] += 2 * oe.contract('ai, iajb -> jb',
-                                                       fock_hf[ki,nocc:,:nocc].conj(),
-                                                       tmp1_bar_data, 
-                                                       optimize=path_jb)
-            
-            # Tính c2 từ y1
-            for ki in range(nkpts):
-                for kj in range(nkpts):
-                    for kb in range(nkpts):
-                        t = kconserv[kj, kb, ki]
-                        # Load tmp1_bar[kj, kb, ki] từ HDF5
-                        tmp1_bar_data = tmp1_bar_dset[kj, kb, ki]
-                        c2[t,ki,nocc:nocc+nvir,:nocc] += oe.contract('jb, jbkc -> ck', 
-                                                                    y1[kj, kb, :, :], 
-                                                                    tmp1_bar_data.conj(), 
-                                                                    optimize=path_ck)
-            
-            # Tính y1_1 theo batch
-            for ki_start in range(0, nkpts, batch_size):
-                ki_end = min(ki_start + batch_size, nkpts)
-                
-                for ka_start in range(0, nkpts, batch_size):
-                    ka_end = min(ka_start + batch_size, nkpts)
-                    
-                    # Khởi tạo y1_1 cho batch hiện tại
-                    y1_1_batch = numpy.zeros((ka_end-ka_start, ki_end-ki_start, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-                    
-                    for ki_idx, ki in enumerate(range(ki_start, ki_end)):
-                        for ka_idx, ka in enumerate(range(ka_start, ka_end)):
-                            for kb in range(nkpts):
-                                # Load tmp1_bar từ HDF5
-                                tmp1_bar_data = tmp1_bar_dset[ka, ki, kb]
-                                y1_1_batch[ka_idx,ki_idx,kb,:,:,:,:] += oe.contract('ca, ickb -> iakb', 
-                                                                                   fock_hf[ki,nocc:,nocc:], 
-                                                                                   tmp1_bar_data.conj(), 
-                                                                                   optimize=path_iakb)
-                    
-                    # Xử lý y1_1_batch
-                    for w_idx, w in enumerate(range(ka_start, ka_end)):
-                        for q_idx, q in enumerate(range(ki_start, ki_end)):
-                            for t in range(nkpts):
-                                e = kconserv[w, q, t]
-                                
-                                # Load tmp1 từ HDF5
-                                tmp1_data = tmp1_dset[w, q, e]
-                                
-                                c2[e,e,:nocc,:nocc] += oe.contract('ialb, iajb -> lj', 
-                                                                 y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
-                                                                 tmp1_data, 
-                                                                 optimize=path_lj)
-                                
-                                c2[w,w,:nocc,:nocc] += oe.contract('kajb, iajb -> ki', 
-                                                                 y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
-                                                                 tmp1_data, 
-                                                                 optimize=path_ki)
-                                
-                                c2[t,t,nocc:nocc+nvir,nocc:nocc+nvir] -= oe.contract('iajd, iajb -> bd', 
-                                                                                    y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
-                                                                                    tmp1_data, 
-                                                                                    optimize=path_bd)
-                                
-                                c0_2nd -= 4*oe.contract('iajb,iajb ->', 
-                                                      y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
-                                                      tmp1_data, 
-                                                      optimize=path_sum).real
-                    
-                    del y1_1_batch
-            
-            # Tính y1_2 theo batch (tương tự như trên)
-            for ki_start in range(0, nkpts, batch_size):
-                ki_end = min(ki_start + batch_size, nkpts)
-                
-                for ka_start in range(0, nkpts, batch_size):
-                    ka_end = min(ka_start + batch_size, nkpts)
-                    
-                    y1_2_batch = numpy.zeros((ki_end-ki_start, ka_end-ka_start, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-                    
-                    for ki_idx, ki in enumerate(range(ki_start, ki_end)):
-                        for ka_idx, ka in enumerate(range(ka_start, ka_end)):
-                            for kb in range(nkpts):
-                                tmp1_bar_data = tmp1_bar_dset[ki, ka, kb]
-                                y1_2_batch[ki_idx,ka_idx,kb,:,:,:,:] += oe.contract('ki, kalb -> ialb', 
-                                                                                   fock_hf[ki,:nocc, :nocc], 
-                                                                                   tmp1_bar_data.conj(), 
-                                                                                   optimize=path_ialb)
-                    
-                    for q_idx, q in enumerate(range(ki_start, ki_end)):
+    try: 
+        if mp.second_order:
+            # Mở file HDF5 ở chế độ đọc
+            with h5py.File(h5_file, 'r') as f:
+                tmp1_dset = f['tmp1']
+                tmp1_bar_dset = f['tmp1_bar']
+
+                # Tính toán y1
+                y1 = numpy.zeros((nkpts, nkpts, nocc, nvir), dtype=complex)
+
+                for ki in range(nkpts):
+                    for kj in range(nkpts):
+                        kb = kconserv[ki, ki, kj]
+                        # Load tmp1_bar[ki, ki, kj] từ HDF5
+                        tmp1_bar_data = tmp1_bar_dset[ki, ki, kj]
+                        y1[kj, kb, :, :] += 2 * oe.contract('ai, iajb -> jb',
+                                                           fock_hf[ki,nocc:,:nocc].conj(),
+                                                           tmp1_bar_data, 
+                                                           optimize=path_jb)
+
+                # Tính c2 từ y1
+                for ki in range(nkpts):
+                    for kj in range(nkpts):
+                        for kb in range(nkpts):
+                            t = kconserv[kj, kb, ki]
+                            # Load tmp1_bar[kj, kb, ki] từ HDF5
+                            tmp1_bar_data = tmp1_bar_dset[kj, kb, ki]
+                            c2[t,ki,nocc:nocc+nvir,:nocc] += oe.contract('jb, jbkc -> ck', 
+                                                                        y1[kj, kb, :, :], 
+                                                                        tmp1_bar_data.conj(), 
+                                                                        optimize=path_ck)
+
+                # Tính y1_1 theo batch
+                for ki_start in range(0, nkpts, batch_size):
+                    ki_end = min(ki_start + batch_size, nkpts)
+
+                    for ka_start in range(0, nkpts, batch_size):
+                        ka_end = min(ka_start + batch_size, nkpts)
+
+                        # Khởi tạo y1_1 cho batch hiện tại
+                        y1_1_batch = numpy.zeros((ka_end-ka_start, ki_end-ki_start, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+
+                        for ki_idx, ki in enumerate(range(ki_start, ki_end)):
+                            for ka_idx, ka in enumerate(range(ka_start, ka_end)):
+                                for kb in range(nkpts):
+                                    # Load tmp1_bar từ HDF5
+                                    tmp1_bar_data = tmp1_bar_dset[ka, ki, kb]
+                                    y1_1_batch[ka_idx,ki_idx,kb,:,:,:,:] += oe.contract('ca, ickb -> iakb', 
+                                                                                       fock_hf[ki,nocc:,nocc:], 
+                                                                                       tmp1_bar_data.conj(), 
+                                                                                       optimize=path_iakb)
+
+                        # Xử lý y1_1_batch
                         for w_idx, w in enumerate(range(ka_start, ka_end)):
-                            for t in range(nkpts):
-                                r = kconserv[q, w, t]
-                                
-                                tmp1_data = tmp1_dset[q, w, r]
-                                
-                                c2[r,r,:nocc,:nocc] -= oe.contract('ialb, iajb -> lj', 
-                                                                 y1_2_batch[q_idx, w_idx, r,:,:,:,:], 
-                                                                 tmp1_data, 
-                                                                 optimize=path_lj_2)
-                                
-                                c2[w,w,nocc:nocc+nvir,nocc:nocc+nvir] += oe.contract('icjb, iajb -> ac', 
-                                                                                    y1_2_batch[q_idx, w_idx, r,:,:,:,:],
-                                                                                    tmp1_data, 
-                                                                                    optimize=path_ac_2)
-                                
-                                c2[t,t,nocc:nocc+nvir,nocc:nocc+nvir] += oe.contract('iajd, iajb -> bd', 
-                                                                                    y1_2_batch[q_idx, w_idx, r,:,:,:,:], 
-                                                                                    tmp1_data, 
-                                                                                    optimize=path_bd_2)
-                                
-                                c0_2nd += 4*oe.contract('iajb, iajb ->', 
-                                                      y1_2_batch[q_idx, w_idx, r,:,:,:,:], 
-                                                      tmp1_data, 
-                                                      optimize=path_sum_2).real
-                    
-                    del y1_2_batch
-            
-            c0_2nd /= nkpts
-            
-            # Tính y1_3
-            y1_3 = numpy.zeros((nkpts,nkpts,nocc,nocc), dtype=complex)
-            
-            for w in range(nkpts):
-                for r in range(nkpts):
-                    for t in range(nkpts):
-                        q = kconserv[w, r, t]
-                        tmp1_data = tmp1_dset[q, w, r]
-                        tmp1_bar_data = tmp1_bar_dset[q, w, r]
-                        y1_3[q,q,:,:] += oe.contract('iajb, kajb -> ki', 
-                                                   tmp1_data, 
-                                                   tmp1_bar_data.conj(), 
-                                                   optimize=path_ki_3)
-            
-            for e in range(nkpts):
-                for q in range(nkpts):
-                    c2[q,e,:,:nocc] -= lib.einsum('pi, ki -> pk', fock_hf[q,:,:nocc], y1_3[e,q,:,:])
-            
-            # Tính y1_4
-            y1_4 = numpy.zeros((nkpts,nkpts,nvir,nvir), dtype=complex)
-            
-            for q in range(nkpts):
-                for r in range(nkpts):
-                    for t in range(nkpts):
-                        w = kconserv[q, r, t]
-                        tmp1_data = tmp1_dset[q, w, r]
-                        tmp1_bar_data = tmp1_bar_dset[q, w, r]
-                        y1_4[w,w,:,:] += oe.contract('iajb, icjb -> ac', 
-                                                   tmp1_data, 
-                                                   tmp1_bar_data.conj(), 
-                                                   optimize=path_ac_3)
-            
-            for w in range(nkpts):
+                            for q_idx, q in enumerate(range(ki_start, ki_end)):
+                                for t in range(nkpts):
+                                    e = kconserv[w, q, t]
+
+                                    # Load tmp1 từ HDF5
+                                    tmp1_data = tmp1_dset[w, q, e]
+
+                                    c2[e,e,:nocc,:nocc] += oe.contract('ialb, iajb -> lj', 
+                                                                     y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
+                                                                     tmp1_data, 
+                                                                     optimize=path_lj)
+
+                                    c2[w,w,:nocc,:nocc] += oe.contract('kajb, iajb -> ki', 
+                                                                     y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
+                                                                     tmp1_data, 
+                                                                     optimize=path_ki)
+
+                                    c2[t,t,nocc:nocc+nvir,nocc:nocc+nvir] -= oe.contract('iajd, iajb -> bd', 
+                                                                                        y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
+                                                                                        tmp1_data, 
+                                                                                        optimize=path_bd)
+
+                                    c0_2nd -= 4*oe.contract('iajb,iajb ->', 
+                                                          y1_1_batch[w_idx, q_idx, e,:,:,:,:], 
+                                                          tmp1_data, 
+                                                          optimize=path_sum).real
+
+                        del y1_1_batch
+
+                # Tính y1_2 theo batch (tương tự như trên)
+                for ki_start in range(0, nkpts, batch_size):
+                    ki_end = min(ki_start + batch_size, nkpts)
+
+                    for ka_start in range(0, nkpts, batch_size):
+                        ka_end = min(ka_start + batch_size, nkpts)
+
+                        y1_2_batch = numpy.zeros((ki_end-ki_start, ka_end-ka_start, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+
+                        for ki_idx, ki in enumerate(range(ki_start, ki_end)):
+                            for ka_idx, ka in enumerate(range(ka_start, ka_end)):
+                                for kb in range(nkpts):
+                                    tmp1_bar_data = tmp1_bar_dset[ki, ka, kb]
+                                    y1_2_batch[ki_idx,ka_idx,kb,:,:,:,:] += oe.contract('ki, kalb -> ialb', 
+                                                                                       fock_hf[ki,:nocc, :nocc], 
+                                                                                       tmp1_bar_data.conj(), 
+                                                                                       optimize=path_ialb)
+
+                        for q_idx, q in enumerate(range(ki_start, ki_end)):
+                            for w_idx, w in enumerate(range(ka_start, ka_end)):
+                                for t in range(nkpts):
+                                    r = kconserv[q, w, t]
+
+                                    tmp1_data = tmp1_dset[q, w, r]
+
+                                    c2[r,r,:nocc,:nocc] -= oe.contract('ialb, iajb -> lj', 
+                                                                     y1_2_batch[q_idx, w_idx, r,:,:,:,:], 
+                                                                     tmp1_data, 
+                                                                     optimize=path_lj_2)
+
+                                    c2[w,w,nocc:nocc+nvir,nocc:nocc+nvir] += oe.contract('icjb, iajb -> ac', 
+                                                                                        y1_2_batch[q_idx, w_idx, r,:,:,:,:],
+                                                                                        tmp1_data, 
+                                                                                        optimize=path_ac_2)
+
+                                    c2[t,t,nocc:nocc+nvir,nocc:nocc+nvir] += oe.contract('iajd, iajb -> bd', 
+                                                                                        y1_2_batch[q_idx, w_idx, r,:,:,:,:], 
+                                                                                        tmp1_data, 
+                                                                                        optimize=path_bd_2)
+
+                                    c0_2nd += 4*oe.contract('iajb, iajb ->', 
+                                                          y1_2_batch[q_idx, w_idx, r,:,:,:,:], 
+                                                          tmp1_data, 
+                                                          optimize=path_sum_2).real
+
+                        del y1_2_batch
+
+                c0_2nd /= nkpts
+
+                # Tính y1_3
+                y1_3 = numpy.zeros((nkpts,nkpts,nocc,nocc), dtype=complex)
+
+                for w in range(nkpts):
+                    for r in range(nkpts):
+                        for t in range(nkpts):
+                            q = kconserv[w, r, t]
+                            tmp1_data = tmp1_dset[q, w, r]
+                            tmp1_bar_data = tmp1_bar_dset[q, w, r]
+                            y1_3[q,q,:,:] += oe.contract('iajb, kajb -> ki', 
+                                                       tmp1_data, 
+                                                       tmp1_bar_data.conj(), 
+                                                       optimize=path_ki_3)
+
                 for e in range(nkpts):
-                    c2[w,e,:,nocc:] -= lib.einsum('pa, ac -> pc', fock_hf[w,:,nocc:], y1_4[w,e,:,:])
+                    for q in range(nkpts):
+                        c2[q,e,:,:nocc] -= lib.einsum('pi, ki -> pk', fock_hf[q,:,:nocc], y1_3[e,q,:,:])
 
+                # Tính y1_4
+                y1_4 = numpy.zeros((nkpts,nkpts,nvir,nvir), dtype=complex)
+
+                for q in range(nkpts):
+                    for r in range(nkpts):
+                        for t in range(nkpts):
+                            w = kconserv[q, r, t]
+                            tmp1_data = tmp1_dset[q, w, r]
+                            tmp1_bar_data = tmp1_bar_dset[q, w, r]
+                            y1_4[w,w,:,:] += oe.contract('iajb, icjb -> ac', 
+                                                       tmp1_data, 
+                                                       tmp1_bar_data.conj(), 
+                                                       optimize=path_ac_3)
+
+                for w in range(nkpts):
+                    for e in range(nkpts):
+                        c2[w,e,:,nocc:] -= lib.einsum('pa, ac -> pc', fock_hf[w,:,nocc:], y1_4[w,e,:,:])
+       
+    finally:
+        print('#################################################')
+        print(f'# BẮT ĐẦU DỌN DẸP FILE TẠM TRONG {temp_dir} #')
+        print('#################################################')    
+        # Xóa file amplitudes tmp_arrays
+        try:
+            if os.path.exists(h5_file):
+                os.remove(h5_file)
+                print(f"Đã xóa thành công: {h5_file}")
+            else:
+                print(f"File không tồn tại, không cần xóa: {h5_file}")
+        except (IOError, OSError) as e:
+            print(f"Lỗi khi đang xóa file {h5_file}: {e}")
+        print('#################################################')
+        print(f'# KẾT THÚC DỌN DẸP FILE TẠM                #')
+        print('#################################################')
+        
     c0 = c0_2nd/nkpts + c0_1st
-
+    
     c1 += numpy.einsum('wwps -> wps', c2)
     print("c1 (sau) = ", c1)
 
