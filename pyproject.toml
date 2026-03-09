@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycmf"
+version = "0.1.0"
+description = "Orbital-Optimized Møller-Plesset Perturbation Theory (OB-MP2) calculations"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+  {name = "QuantumLab HCMUS"}
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "pyscf>=2.10.0",
+    "opt_einsum>=3.4.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/QuantumLab-HCMUS/pyCMF"
+
+# Ép buộc setuptools chỉ quét mã nguồn trong thư mục src/
+[tool.setuptools.packages.find]
+where = ["src"]
