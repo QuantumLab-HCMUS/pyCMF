@@ -27,8 +27,8 @@ from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mp import mp2
-import obmp2_faster
-import dfobmp2_faster_ram
+from . import obmp2_faster
+from . import dfobmp2_faster_ram
 from pyscf import df
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
@@ -1175,7 +1175,7 @@ if __name__ == '__main__':
     from pyscf import gto
     #from pyscf.mp import dfobmp2_faster_ram , dfmp2_native, mp2
     from pyscf.mp import dfmp2_native, mp2
-    import dfobmp2_faster_ram
+    from . import dfobmp2_faster_ram
     mol = gto.Mole()
     mol.atom = [
             [9 , (0. , 0 , 0.6)],
