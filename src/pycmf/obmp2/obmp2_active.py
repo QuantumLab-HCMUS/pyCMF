@@ -30,7 +30,7 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2_faster
+from . import obmp2_faster
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
