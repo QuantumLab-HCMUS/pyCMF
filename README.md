@@ -1,43 +1,39 @@
+### Step 1: Clone the Repository
+Download to your local machine
 
+```bash
+git clone https://github.com/Quantum-Lab-HCMUS/pyCMF.git
+cd pyCMF
 
-title                   = OPLS Lysozyme NVT equilibration 
-define                  = -DPOSRES  ; position restrain the protein
-; Run parameters
-integrator              = md        ; leap-frog integrator
-nsteps                  = 50000     ; 2 * 50000 = 100 ps
-dt                      = 0.002     ; 2 fs
-; Output control
-nstxout                 = 500       ; save coordinates every 1.0 ps
-nstvout                 = 500       ; save velocities every 1.0 ps
-nstenergy               = 500       ; save energies every 1.0 ps
-nstlog                  = 500       ; update log file every 1.0 ps
-; Bond parameters
-continuation            = no        ; first dynamics run
-constraint_algorithm    = lincs     ; holonomic constraints 
-constraints             = h-bonds   ; bonds involving H are constrained
-lincs_iter              = 1         ; accuracy of LINCS
-lincs_order             = 4         ; also related to accuracy
-; Nonbonded settings 
-cutoff-scheme           = Verlet    ; Buffered neighbor searching
-ns_type                 = grid      ; search neighboring grid cells
-nstlist                 = 10        ; 20 fs, largely irrelevant with Verlet
-rcoulomb                = 1.0       ; short-range electrostatic cutoff (in nm)
-rvdw                    = 1.0       ; short-range van der Waals cutoff (in nm)
-DispCorr                = EnerPres  ; account for cut-off vdW scheme
-; Electrostatics
-coulombtype             = PME       ; Particle Mesh Ewald for long-range electrostatics
-pme_order               = 4         ; cubic interpolation
-fourierspacing          = 0.16      ; grid spacing for FFT
-; Temperature coupling is on
-tcoupl                  = V-rescale             ; modified Berendsen thermostat
-tc-grps                 = Protein Non-Protein   ; two coupling groups - more accurate
-tau_t                   = 0.1     0.1           ; time constant, in ps
-ref_t                   = 300     300           ; reference temperature, one for each group, in K
-; Pressure coupling is off
-pcoupl                  = no        ; no pressure coupling in NVT
-; Periodic boundary conditions
-pbc                     = xyz       ; 3-D PBC
-; Velocity generation
-gen_vel                 = yes       ; assign velocities from Maxwell distribution
-gen_temp                = 300       ; temperature for Maxwell distribution
-gen_seed                = -1        ; generate a random seed
+```
+
+*(Make sure you are inside the `pyCMF` root directory where the `pyproject.toml` file is located before proceeding to the next steps).*
+
+### Step 2: Create a Minimal Conda Environment
+
+It is highly recommended to isolate the dependencies of this project. Create a clean Conda environment with Python 3.11:
+
+```bash
+conda create -n pycmf python=3.11 -y
+
+```
+
+### Step 3: Activate the Environment
+
+You must activate the environment before installing anything:
+
+```bash
+conda activate pycmf
+
+```
+
+*(You should see `(pycmf)` appear at the beginning of your terminal prompt).*
+
+### Step 4: Install the Package in Editable Mode (Crucial Step)
+
+Install `pyCMF` along with all its dependencies (`pyscf`, `opt_einsum`, `numpy`, `scipy`) by running the following command. **Do not forget the dot (`.`) at the end!**
+
+```bash
+pip install -e .
+
+```
