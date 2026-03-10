@@ -29,7 +29,7 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from ..obmp2 import OBMP2, _ChemistsERIs, DFOBMP2
+from ..obmp2 import OBMP2, _ChemistsERIs, DFOBMP2 # Cần phải xem lại DFOBMP2
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
