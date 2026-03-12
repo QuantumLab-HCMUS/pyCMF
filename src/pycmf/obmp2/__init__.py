@@ -2,6 +2,7 @@
 
 # 1. Import class cơ bản
 from .obmp2 import OBMP2, _ChemistsERIs
+from .dfobmp2_faster_ram import DFOBMP2
 
 # 2. Import và đặt bí danh (alias) cho các class trùng tên OBMP2
 from .obmp2_faster import OBMP2 as OBMP2_faster
@@ -20,6 +21,7 @@ from .dftobmp2 import B2PLYPDFOBMP2 as DFTOBMP2
 __all__ = [
     'OBMP2',
     '_ChemistsERIs',
+    'DFOBMP2',
     'OBMP2_faster',
     'OBMP2_active',
     'OBMP2_mod',
