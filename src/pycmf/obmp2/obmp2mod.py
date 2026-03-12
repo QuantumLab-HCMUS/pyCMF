@@ -671,7 +671,7 @@ class _ChemistsERIs:
 
 def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     log = logger.new_logger(mp, verbose)
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
     mo_coeff = eris.mo_coeff
 

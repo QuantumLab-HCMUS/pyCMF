@@ -1214,7 +1214,7 @@ class _ChemistsERIs(obmp2._ChemistsERIs):
 
 def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     log = logger.new_logger(mp, verbose)
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
 
     nocca, noccb = mp.get_nocc()
@@ -1268,7 +1268,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     return eris
 
 def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     log = logger.new_logger(mp, verbose)
     orboa = numpy.asarray(orbs[0], order='F')
     orbva = numpy.asarray(orbs[1], order='F')

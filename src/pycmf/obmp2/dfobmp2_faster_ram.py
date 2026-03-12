@@ -853,7 +853,7 @@ class _ChemistsERIs:
 
 def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     log = logger.new_logger(mp, verbose)
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
     mo_coeff = eris.mo_coeff
 
@@ -904,7 +904,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
 #   or    => (ij|ol) => (oj|ol) => (oj|ov) => (ov|ov)
 #
 def _ao2mo_ovov(mp, orbo, orbv, feri, max_memory=2000, verbose=None):
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     log = logger.new_logger(mp, verbose)
 
     mol = mp.mol

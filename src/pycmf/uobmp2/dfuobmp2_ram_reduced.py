@@ -51,7 +51,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         mo_energy = mp.mo_energy
 
     log = logger.new_logger(mp, verbose)
-    t0 = (time.clock(), time.time())
+    t0 = (time.perf_counter(), time.time())
 
     nuc = mp._scf.energy_nuc()
     ene_hf = mp._scf.energy_tot()
@@ -89,7 +89,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     for it in range(niter):
         
-        t0 = (time.clock(), time.time())
+        t0 = (time.perf_counter(), time.time())
 
         h1ao = mp._scf.get_hcore(mp.mol)
         h1mo_a = numpy.matmul(mo_coeff[0].T,numpy.matmul(h1ao,mo_coeff[0]))
@@ -298,7 +298,7 @@ def make_amp(mp):
     mo_energy = mp.mo_energy
     mo_coeff  = mp.mo_coeff
     
-    t0 = (time.clock(), time.time())
+    t0 = (time.perf_counter(), time.time())
 
     for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
         qov_a = qov_a
@@ -348,7 +348,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
     eia_a = mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:]
     eia_b = mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:]
     
-    t0 = (time.clock(), time.time())
+    t0 = (time.perf_counter(), time.time())
 
 
     ##########################################################
@@ -1369,7 +1369,7 @@ class _ChemistsERIs(obmp2._ChemistsERIs):
 
 def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     log = logger.new_logger(mp, verbose)
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
 
     nocca, noccb = mp.get_nocc()
@@ -1423,7 +1423,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     return eris
 
 def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     log = logger.new_logger(mp, verbose)
     orboa = numpy.asarray(orbs[0], order='F')
     orbva = numpy.asarray(orbs[1], order='F')
