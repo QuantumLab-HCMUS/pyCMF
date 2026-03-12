@@ -44,7 +44,7 @@ def kernel(mp,  mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     else:
         # For backward compatibility.  In pyscf-1.4 or earlier, mp.frozen is
         # not supported when mo_energy or mo_coeff is given.
-        assert(mp.frozen is 0 or mp.frozen is None)
+        assert(mp.frozen == 0 or mp.frozen is None)
 
     nuc = mp._scf.energy_nuc()
     ene_hf = mp._scf.energy_tot()
@@ -417,7 +417,7 @@ def _gamma1_intermediates(mp, t2=None, eris=None):
 #        mo_energy = _mo_energy_without_core(mp, mp.mo_energy)
 #        eia = mo_energy[:nocc,None] - mo_energy[None,nocc:]
 #
-#    if not (mp.frozen is 0 or mp.frozen is None):
+#    if not (mp.frozen == 0 or mp.frozen is None):
 #        nmo0 = mp.mo_occ.size
 #        nocc0 = numpy.count_nonzero(mp.mo_occ > 0)
 #        moidx = get_frozen_mask(mp)
@@ -582,7 +582,7 @@ class OBMP2(lib.StreamObject):
         log.info('')
         log.info('******** %s ********', self.__class__)
         log.info('nocc = %s, nmo = %s', self.nocc, self.nmo)
-        if self.frozen is not 0:
+        if self.frozen != 0:
             log.info('frozen orbitals %s', self.frozen)
         log.info('max_memory %d MB (current use %d MB)',
                  self.max_memory, lib.current_memory()[0])
@@ -722,7 +722,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
 #   or    => (ij|ol) => (oj|ol) => (oj|ov) => (ov|ov)
 #
 def _ao2mo_ovov(mp, orbo, orbv, feri, max_memory=2000, verbose=None):
-    time0 = (time.clock(), time.time())
+    time0 = (time.perf_counter(), time.time())
     log = logger.new_logger(mp, verbose)
 
     mol = mp.mol
