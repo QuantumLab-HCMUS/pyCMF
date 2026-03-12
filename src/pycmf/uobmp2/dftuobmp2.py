@@ -30,8 +30,7 @@ from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from pyscf.mp import mp2
-import dfobmp2_faster_ram
-import obmp2
+from pycmf.obmp2 import dfobmp2_faster_ram, obmp2
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
@@ -1723,7 +1722,7 @@ if __name__ == '__main__':
     from pyscf import gto
     #from pyscf.mp import dfuobmp2_faster_ram , dfump2_native,ump2
     from pyscf.mp import dfump2_native,ump2
-    import dfuobmp2_faster_ram
+    from . import dfuobmp2_faster_ram
 
     mol = gto.Mole()
     mol.atom ='''O 	0.0000 	0.0000 	0.6049
