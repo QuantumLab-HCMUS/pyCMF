@@ -859,7 +859,7 @@ def make_rdm2(mp, t2=None):
         t2i = eris_ovov.conj()/lib.direct_sum('a+jb->jab', eia_a[i], eia_b)
         t2ab[i] = t2i
 
-    if not (mp.frozen is 0 or mp.frozen is None):
+    if not (mp.frozen == 0 or mp.frozen is None):
         nmoa0 = mp.mo_occ[0].size
         nmob0 = mp.mo_occ[1].size
         nocca0 = numpy.count_nonzero(mp.mo_occ[0] > 0)

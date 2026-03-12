@@ -53,7 +53,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         #print("we are here")
         # For backward compatibility.  In pyscf-1.4 or earlier, mp.frozen is
         # not supported when mo_energy or mo_coeff is given.
-        #assert(mp.frozen is 0 or mp.frozen is None)
+        #assert(mp.frozen == 0 or mp.frozen is None)
         #print("we are here")
         mo_coeff_init  = mp.mo_coeff
         mo_coeff  = mp.mo_coeff
