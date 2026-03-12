@@ -29,8 +29,8 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2, obmp2_faster, obmp2_active
-from pyscf.mp import uobmp2_active as uob_act
+from pycmf.obmp2 import obmp2, obmp2_faster, obmp2_active
+from . import uobmp2_active as uob_act
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 

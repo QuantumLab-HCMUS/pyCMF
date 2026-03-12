@@ -29,7 +29,8 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import obmp2, mp2, dfobmp2_faster_ram
+from pyscf.mp import mp2
+from pycmf.obmp2 import obmp2, dfobmp2_faster_ram
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
@@ -372,8 +373,8 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
         Qb = numpy.dot(qov_a, t2i_bar_aa.reshape(nvira,nocca*nvira).T)
         print("qov shape", qov_a.shape)
         for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], i+1)):
-        	qog_a = qog_a
-    	
+            qog_a = qog_a
+
         c1_a[:,nocca:nmoa] -= 2.*numpy.dot(qog_a.T, Qb)#[3]
         c1_a[:nocca,nocca:] += 2.*numpy.dot(t2i_bar_aa.reshape(nvira,nocca*nvira).T,fock_hfa[i,nocca:]).reshape(nocca,nvira)#[1]
         
@@ -419,7 +420,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
         t2a_bar_aa = t2a_aa - t2a_aa.T
         
         for istep, qgv_a in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[0], nocca+a)):
-        	qgv_a = qgv_a
+            qgv_a = qgv_a
         Qj = numpy.dot(qov_a, t2a_bar_aa.transpose(2,1,0).reshape(nocca*nvira,nocca))
         c1_a[:,0:nocca] += 2. * numpy.dot(qgv_a.T, Qj)#[2]
         
@@ -450,7 +451,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
         t2a_bar_bb = t2a_bb - t2a_bb.T
         
         for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb+b)):
-        	qgv_b = qgv_b
+            qgv_b = qgv_b
         
         Qj = numpy.dot(qov_b, t2a_bar_bb.transpose(2,1,0).reshape(noccb*nvirb,noccb))
         c1_b[:,0:noccb] += 2. * numpy.dot(qgv_b.T, Qj)#[2]
@@ -482,7 +483,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
         c0 -= numpy.trace(numpy.dot(buf_bb.reshape(nvirb,noccb*nvirb),t2i_bar_bb.reshape(nvirb,noccb*nvirb).T))#[4]
         Qb = numpy.dot(qov_b, t2i_bar_bb.reshape(nvirb,noccb*nvirb).T)
         for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], i+1)):
-        	qog_b = qog_b
+            qog_b = qog_b
     	 
       
         c1_b[:,noccb:nmob] -= 2.*numpy.dot(qog_b.T, Qb)#[3]
