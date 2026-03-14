@@ -29,7 +29,7 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pycmf.obmp2 import obmp2, obmp2_faster, obmp2_active
+from pycmf.OBMP import obmp2_slow as obmp2, obmp2_faster, obmp2_active
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 
@@ -83,169 +83,177 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     nocc_act = mp.nocc_act
     nocc_inact = numpy.array([nocc[0] - nocc_act[0]\
                         ,nocc[1] - nocc_act[1]])
+    nvir_act = numpy.array([nact[0] - nocc_act[0]\
+                        ,nact[1]- nocc_act[1]])
 
     mo_ea, mo_eb = mo_energy
     eia_a = mo_ea[:nocca,None] - mo_ea[None,nocca:]
     eia_b = mo_eb[:noccb,None] - mo_eb[None,noccb:]
 
     shift = mp.shift
-
-
-    niter = mp.niter
-    ene_old = 0.
-    #thres = 1e-8
-    conv = False 
     eri_ao = mp.mol.intor('int2e_sph')
 
-    print("shift = ", mp.shift)
-    print ("thresh = ", mp.thresh)
-    print ("niter = ", mp.niter)
+    h1ao = mp._scf.get_hcore(mp.mol)
+    h1mo_act = numpy.array([numpy.zeros([nact[0], nact[0]])\
+                        ,numpy.zeros([nact[1], nact[1]])])
+    for sp in numpy.arange(2):
+        h1mo = numpy.matmul(mp.mo_coeff[sp].T,numpy.matmul(h1ao,mp.mo_coeff[sp]))
+        h1mo_act[sp] = h1mo[nocc_inact[sp] : nocc_inact[sp]+nact[sp]\
+                    , nocc_inact[sp] : nocc_inact[sp]+nact[sp]]
+    veff_core = make_veff_core(mp)
+    h1mo_act[0] += veff_core[0]
+    h1mo_act[1] += veff_core[1]
+    
+    ########### ############ #############
+    ######## h1mo & h2mo output for VQE
+    h1mo_vqe = [0, 0]
+    h1mo_vqe[0] += h1mo_act[0]
+    h1mo_vqe[1] += h1mo_act[1]
 
-    for it in range(niter):  
-        h1ao = mp._scf.get_hcore(mp.mol)
-        h1mo_act = numpy.array([numpy.zeros([nact[0], nact[0]])\
-                            ,numpy.zeros([nact[1], nact[1]])])
-        for sp in numpy.arange(2):
-            h1mo = numpy.matmul(mp.mo_coeff[sp].T,numpy.matmul(h1ao,mp.mo_coeff[sp]))
-            h1mo_act[sp] = h1mo[nocc_inact[sp] : nocc_inact[sp]+nact[sp]\
-                        , nocc_inact[sp] : nocc_inact[sp]+nact[sp]]
-        veff_core = make_veff_core(mp)
-        h1mo_act[0] += veff_core[0]
-        h1mo_act[1] += veff_core[1]
-        
-        ########### ############ #############
-        ######## h1mo & h2mo output for VQE
-        h1mo_vqe = [0, 0]
-        h1mo_vqe[0] += h1mo_act[0]
-        h1mo_vqe[1] += h1mo_act[1]
+    cg = [mo_coeff[0][:,nocc_inact[0]:nocc_inact[0]+nact[0]]\
+        ,mo_coeff[1][:,nocc_inact[1]:nocc_inact[1]+nact[1]]]
+    
+    ## h2mo_act := (aa, ab, ba, bb)
+    h2mo_act = numpy.array(
+                [numpy.zeros([nact[0], nact[0], nact[0], nact[0]])\
+                ,numpy.zeros([nact[0], nact[0], nact[1], nact[1]])\
+                ,numpy.zeros([nact[1], nact[1], nact[0], nact[0]])\
+                ,numpy.zeros([nact[1], nact[1], nact[1], nact[1]])])
+    ele = 0
+    for s1 in numpy.arange(2):
+        for s2 in numpy.arange(2):
+            h2mo = ao2mo.general(mp._scf._eri, (cg[s1],cg[s1],cg[s2],cg[s2]), compact=False)
+            h2mo_act[ele] = h2mo.reshape(nact[s1],nact[s1],nact[s2],nact[s2])
+            ele +=1
 
-        cg = numpy.array(
-            [numpy.asarray(mo_coeff[0][:,nocc_inact[0]:nocc_inact[0]+nact[0]]\
-                    , order='F')\
-            ,numpy.asarray(mo_coeff[1][:,nocc_inact[1]:nocc_inact[1]+nact[1]]\
-                    , order='F')])
-        
-        ## h2mo_act := (aa, ab, ba, bb)
-        h2mo_act = numpy.array(
-                    [numpy.zeros([nact[0], nact[0], nact[0], nact[0]])\
-                    ,numpy.zeros([nact[0], nact[0], nact[1], nact[1]])\
-                    ,numpy.zeros([nact[1], nact[1], nact[0], nact[0]])\
-                    ,numpy.zeros([nact[1], nact[1], nact[1], nact[1]])])
-        ele = 0
-        for s1 in numpy.arange(2):
-            for s2 in numpy.arange(2):
-                h2mo = ao2mo.general(mp._scf._eri, (cg[s1],cg[s1],cg[s2],cg[s2]), compact=False)
-                h2mo_act[ele] = h2mo.reshape(nact[s1],nact[s1],nact[s2],nact[s2])
-                ele +=1
- 
-        #####################
-        ### Hartree-Fock
+    #####################
+    ### Hartree-Fock
 
-        fock_hf = numpy.array([h1mo_act[0], h1mo_act[1]])
+    fock_hf = [h1mo_act[0], h1mo_act[1]]
 
-        veff, c0 = make_veff(mp)
-        fock_hf[0] += veff[0]
-        fock_hf[1] += veff[1]
-        fock = fock_hf
-        c0 *= 0.5
+    veff, c0 = make_veff(mp)
+    fock_hf[0] += veff[0]
+    fock_hf[1] += veff[1]
+    fock = fock_hf
+    c0 *= 0.5
 
-        ####################
-        #### MP1 amplitude
-        tmp1, tmp1_bar = make_amp(mp) 
+    ####################
+    #### MP1 amplitude
+    """
+    tmp1, tmp1_bar = make_amp(mp) 
 
-        tmp1_bar_act = [0, 0, 0, 0]
-        for ele in numpy.arange(4):
-            tmp1_bar_act[ele] += tmp1_bar[ele]
-        
-        if mp.second_order:
-            mp.ampf = 1.0
-
-        for ele in numpy.arange(4):
-            tmp1_bar[ele] *= mp.ampf
-
-        #####################
-        ### BCH 1st order  
-        c0, c1_a, c1_b = first_BCH(mp, fock_hf, tmp1_bar, c0)
-        # symmetrize c1
-        fock[0] += 0.5 * (c1_a + c1_a.T)
-        fock[1] += 0.5 * (c1_b + c1_b.T)  
-
-        #####################
-        ### BCH 2nd order  
-        if mp.second_order:
-            c0, c1_a, c1_b = second_BCH(mp, fock, fock_hf, tmp1, tmp1_bar, c0)
-
-        # symmetrize c1
-            fock[0] += 0.5 * (c1_a + c1_a.T)
-            fock[1] += 0.5 * (c1_b + c1_b.T) 
-        ene = c0
-        for i in range(nocc_act[0]):
-            ene += 1. * fock[0][i,i]
-        for i in range(nocc_act[1]):
-            ene += 1. * fock[1][i,i]
-
-        ene_act = ene
-        de = abs(ene_act - ene_old)
-        ene_old = ene_act
-        print()
-        print("========================")
-        print('iter = %d'%it, ' energy = %8.6f'%ene_act, ' energy diff = %8.6f'%de, flush=True)
-        print()
-
-        if de < mp.thresh:
-            conv = True
-            break
-
-        if mp.eval_fc:
-            print("Fermi contact using HF-like density")
-            rdm1 = mp.make_rdm1()
-            #R_reslv = None #[-1,4.0] #so primitive
-            mp.make_fc(rdm1) #, it, R_reslv)
-
-            #mp.make_fc(rdm1, it, R_reslv=None)
-            #print("Spin occupation numbers:")
-            #
-            #print("Fermi contact using correlated density")
-            ##rdm1 = mp.make_rdm1(use_t2=True)
-            #rdm1 = mp.make_rdm1(use_t2=True,use_ao=False)
-            #rdm1_ao =  (reduce(numpy.dot, (mo_coeff[0], rdm1[0], mo_coeff[0].T)), 
-            #            reduce(numpy.dot, (mo_coeff[1], rdm1[1], mo_coeff[1].T)))
-            #spinrdm1 = rdm1[0] - rdm1[1]
-            ##spinocc = numpy.sort(spinocc)[::-1]    
-            #print(spinocc[0:nocca])
-
+    tmp1_bar_act = [0, 0, 0, 0]
+    for ele in numpy.arange(4):
+        tmp1_bar_act[ele] += tmp1_bar[ele]
+    """
+    tmp1 = [0,0,0,0]
+    tmp1_bar = [0,0,0,0]
+    ele = 0
+    for sa in numpy.arange(2):
+        for sb in numpy.arange(2):    
+            tmp1[ele] = \
+                mp.tmp1[ele][nocc_inact[sa]:nocc_inact[sa]+nocc_act[sa]
+                        , :nvir_act[sa]
+                        , nocc_inact[sb]:nocc_inact[sb]+nocc_act[sb]
+                        , :nvir_act[sb]]
+            tmp1_bar[ele] = \
+                mp.tmp1_bar[ele][nocc_inact[sa]:nocc_inact[sa]+nocc_act[sa]
+                        , :nvir_act[sa]
+                        , nocc_inact[sb]:nocc_inact[sb]+nocc_act[sb]
+                        , :nvir_act[sb]]
+            ele += 1
             
-        #if it > 0:
-        #    fock_a = 0.01*fock_a + 0.99*fock_a_old
-        ### diagonalizing correlated Fock 
-        mo_energy_a, U = scipy.linalg.eigh(fock[0])
-        mo_coeff_a = numpy.matmul(mo_coeff[0][:\
-            ,nocc_inact[0]:nocc_inact[0]+nact[0]], U)
+    tmp1_bar_act = [0,0,0,0]
+    for ele in numpy.arange(4):   
+        tmp1_bar_act[ele] += tmp1_bar[ele]
+    
+    if mp.second_order:
+        mp.ampf = 1.0
+
+    for ele in numpy.arange(4):
+        tmp1_bar[ele] *= mp.ampf
+
+    #####################
+    ### BCH 1st order  
+    c0, c1_a, c1_b = first_BCH(mp, fock_hf, tmp1_bar, c0)
+    # symmetrize c1
+    fock[0] += 0.5 * (c1_a + c1_a.T)
+    fock[1] += 0.5 * (c1_b + c1_b.T)  
+
+    #####################
+    ### BCH 2nd order  
+    if mp.second_order:
+        c0, c1_a, c1_b = second_BCH(mp, fock, fock_hf, tmp1, tmp1_bar, c0)
+
+    # symmetrize c1
+        fock[0] += 0.5 * (c1_a + c1_a.T)
+        fock[1] += 0.5 * (c1_b + c1_b.T) 
+    ene = c0
+    for i in range(nocc_act[0]):
+        ene += 1. * fock[0][i,i]
+    for i in range(nocc_act[1]):
+        ene += 1. * fock[1][i,i]
+
+    ene_act = ene
+    print()
+    print("========================")
+    print(' energy = %8.6f'%ene_act)
+    print()
+
+    #if de < mp.thresh:
+    #    conv = True
+    #    break
+
+    if mp.eval_fc:
+        print("Fermi contact using HF-like density")
+        rdm1 = mp.make_rdm1()
+        #R_reslv = None #[-1,4.0] #so primitive
+        mp.make_fc(rdm1) #, it, R_reslv)
+
+        #mp.make_fc(rdm1, it, R_reslv=None)
+        #print("Spin occupation numbers:")
+        #
+        #print("Fermi contact using correlated density")
+        ##rdm1 = mp.make_rdm1(use_t2=True)
+        #rdm1 = mp.make_rdm1(use_t2=True,use_ao=False)
+        #rdm1_ao =  (reduce(numpy.dot, (mo_coeff[0], rdm1[0], mo_coeff[0].T)), 
+        #            reduce(numpy.dot, (mo_coeff[1], rdm1[1], mo_coeff[1].T)))
+        #spinrdm1 = rdm1[0] - rdm1[1]
+        ##spinocc = numpy.sort(spinocc)[::-1]    
+        #print(spinocc[0:nocca])
+
         
-        mo_energy_b, U = scipy.linalg.eigh(fock[1])
-        mo_coeff_b = numpy.matmul(mo_coeff[1][:\
-            ,nocc_inact[1]:nocc_inact[1]+nact[1]], U)
+    #if it > 0:
+    #    fock_a = 0.01*fock_a + 0.99*fock_a_old
+    ### diagonalizing correlated Fock 
+    #mo_energy_a, U = scipy.linalg.eigh(fock[0])
+    #mo_coeff_a = numpy.matmul(mo_coeff[0][:\
+    #    ,nocc_inact[0]:nocc_inact[0]+nact[0]], U)
+    
+    #mo_energy_b, U = scipy.linalg.eigh(fock[1])
+    #mo_coeff_b = numpy.matmul(mo_coeff[1][:\
+    #    ,nocc_inact[1]:nocc_inact[1]+nact[1]], U)
 
-        #mo_energy[1], U = scipy.linalg.eigh(fock[0])
-        #mo_coeff[1] = numpy.matmul(mo_coeff[1], U)
+    #mo_energy[1], U = scipy.linalg.eigh(fock[0])
+    #mo_coeff[1] = numpy.matmul(mo_coeff[1], U)
 
-        if mp.mom:
-            #aa, ab = mp.vir_exc
-            #if aa < nocca: 
-            mp.mom_select(mo_coeff_init, mo_coeff)
-            #print("mo_coeff here")
-            #print(mo_coeff[0])
-            aa, ab = mp.vir_exc
-            if aa > nocca-1:
-                mo_coeff = mp.mom_reorder(mo_coeff)
-            #else:
-            #   print("not need to reorder")
-        #if not mp.mom:
-        mp.mo_energy[0][nocc_inact[0]:nocc_inact[0]+nact[0]] = mo_energy_a
-        mp.mo_coeff[0][:,nocc_inact[0]:nocc_inact[0]+nact[0]]  = mo_coeff_a
+    if mp.mom:
+        #aa, ab = mp.vir_exc
+        #if aa < nocca: 
+        mp.mom_select(mo_coeff_init, mo_coeff)
+        #print("mo_coeff here")
+        #print(mo_coeff[0])
+        aa, ab = mp.vir_exc
+        if aa > nocca-1:
+            mo_coeff = mp.mom_reorder(mo_coeff)
+        #else:
+        #   print("not need to reorder")
+    #if not mp.mom:
+    #mp.mo_energy[0][nocc_inact[0]:nocc_inact[0]+nact[0]] = mo_energy_a
+    #mp.mo_coeff[0][:,nocc_inact[0]:nocc_inact[0]+nact[0]]  = mo_coeff_a
 
-        mp.mo_energy[1][nocc_inact[1]:nocc_inact[1]+nact[1]] = mo_energy_b
-        mp.mo_coeff[1][:,nocc_inact[1]:nocc_inact[1]+nact[1]]  = mo_coeff_b
+    #mp.mo_energy[1][nocc_inact[1]:nocc_inact[1]+nact[1]] = mo_energy_b
+    #mp.mo_coeff[1][:,nocc_inact[1]:nocc_inact[1]+nact[1]]  = mo_coeff_b
     ss, s = mp._scf.spin_square((mo_coeff[0][:,mo_occ[0]>0],
                                  mo_coeff[1][:,mo_occ[1]>0]), mp._scf.get_ovlp())
     print('multiplicity <S^2> = %.8g' %ss, '2S+1 = %.8g' %s)
@@ -253,15 +261,102 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     #print("final mo_coeff")
     #print(mo_coeff[0][:,:4])
 
-    print()
-    if conv:
-        print("UOB-MP2 has converged")
-    else:
-        print("UOB-MP2 has not converged")
-
     print("UOB-MP2 active energy = ", ene_act)
     
     return ene_act, h1mo_vqe, h2mo_act, tmp1_bar_act, tmp1
+
+def ext_list(nmo, occ, oact, caslist):
+    nocc_inact = occ - oact
+
+    mask = numpy.ones(nmo, dtype=bool)
+    mask[caslist] = False
+    ext_idx = numpy.where(mask)[0]
+
+    next = len(ext_idx) - nocc_inact
+    for i in numpy.arange(next):
+        ext_idx[nocc_inact:][i] -= occ
+    
+    return ext_idx
+
+def active_tmp1(mp, occ_ele, oact_ele, t2_ele, caslist_ele):
+    nmo = numpy.array(mp.get_nmo())
+    nocc_inact = [occ_ele[0] - oact_ele[0]\
+                    ,occ_ele[1] - oact_ele[1]]
+    nvir = [nmo[0] - occ_ele[0]
+            ,nmo[1] - occ_ele[1]]
+
+    caslist_ele = [[i-1 for i in caslist_ele[0]]
+                    ,[i-1 for i in caslist_ele[1]]]
+
+    ext_idx = [0, 0]
+    ext_idx[0] = ext_list(nmo[0],occ_ele[0],oact_ele[0], caslist_ele[0]).tolist()
+    ext_idx[1] = ext_list(nmo[1],occ_ele[1],oact_ele[1], caslist_ele[1]).tolist()
+
+    if len(ext_idx[0]) + mp.nact[0] != nmo[0] or\
+        len(ext_idx[1]) + mp.nact[1] != nmo[1]:
+        raise ValueError('Active space size is incompatible with caslist. '
+                            'ncas = %s.  caslist %s' % (mp.nact, caslist_ele))
+    
+    occ_idx = [caslist_ele[0][:oact_ele[0]]
+                ,caslist_ele[1][:oact_ele[1]]]
+
+    vir_idx = [[i-occ_ele[0] for i in caslist_ele[0][oact_ele[0]:]]
+                ,[i-occ_ele[1] for i in caslist_ele[1][oact_ele[1]:]]]
+    
+    t2_icore = t2_ele[ext_idx[0][:nocc_inact[0]],:,:]
+    t2_iact = t2_ele[occ_idx[0],:,:,:]
+    t2_i = numpy.concatenate([t2_icore, t2_iact], axis=0)
+
+    t2_kcore = t2_i[:,:,ext_idx[1][:nocc_inact[1]],:]
+    t2_kact = t2_i[:,:,occ_idx[1],:]
+    t2_k = numpy.concatenate([t2_kcore, t2_kact], axis=2)
+
+    t2_jact = t2_k[:, vir_idx[0],:,:]
+    t2_jext = t2_k[:, ext_idx[0][nocc_inact[0]:],:,:]
+    t2_j = numpy.concatenate([t2_jact, t2_jext], axis=1)
+
+    t2_lact = t2_j[:,:,:,vir_idx[1]]
+    t2_lext = t2_j[:,:,:, ext_idx[1][nocc_inact[1]:]]
+    t2_l = numpy.concatenate([t2_lact, t2_lext], axis=3)
+    #print(occ_idx)
+
+    """
+    t2_rcore = t2_ele\
+        [ext_idx[0][:nocc_inact[0]],:,ext_idx[1][:nocc_inact[1]],:]\
+            .reshape(nocc_inact[0],nvir[0],nocc_inact[1],nvir[1])
+
+    t2_ract = t2_ele[occ_idx[0],:, occ_idx[1],:]\
+                .reshape(occ_len[0], nvir[0], occ_len[1], nvir[1])
+
+    t2_row = numpy.stack([t2_rcore, t2_ract])\
+                #.reshape(occ_ele[0], nvir[0], occ_ele[1], nvir[1])
+    print(t2_rcore.shape)
+    print(t2_row.shape)
+
+    t2_act = t2_row[:, vir_idx[0],:, vir_idx[1]]
+    t2_ext = t2_row[:, ext_idx[0][nocc_inact[0]:]
+                , :, ext_idx[1][nocc_inact[1]:]]
+    t2_ele = numpy.block([t2_act, t2_ext])
+    """
+    return t2_l
+
+def sort_tmp1(mp, tmp1, caslist):
+    nocc = numpy.array(mp.get_nocc())
+    nocc_act = mp.nocc_act
+    
+    tmp1_sorted = [0, 0, 0, 0]
+
+    ele = 0
+    for sa in numpy.arange(2):
+        for sb in numpy.arange(2):
+            occ_ele = [nocc[sa], nocc[sb]]
+            oact_ele = [nocc_act[sa], nocc_act[sb]]
+            caslist_ele = [caslist[sa], caslist[sb]]
+            tmp1_sorted[ele] = \
+                active_tmp1(mp, occ_ele, oact_ele, tmp1[ele], caslist_ele)
+            ele += 1
+
+    return tmp1_sorted
 
 def make_veff_core(mp):
     nocc = numpy.array(mp.get_nocc())
@@ -1231,6 +1326,7 @@ class UOBMP2(obmp2_active.OBMP2):
         return _make_eris(self, mo_coeff, verbose=self.verbose)
 
     make_rdm1 = make_rdm1
+    sort_tmp1 = sort_tmp1
     #make_rdm2 = make_rdm2
     make_fc = make_fc
     eval_fc = False

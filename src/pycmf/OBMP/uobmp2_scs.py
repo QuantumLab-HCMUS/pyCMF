@@ -29,7 +29,7 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pycmf.obmp2 import obmp2
+from pycmf.OBMP import obmp2_slow as obmp2
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 
@@ -74,6 +74,12 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     nuc = mp._scf.energy_nuc()
     ene_hf = mp._scf.energy_tot()
 
+    css = mp.css
+    cos = mp.cos
+
+    print("css = ", css)
+    print("cos = ", cos)
+
     #initializing w/ HF
     #mo_coeff  = mp._scf.mo_coeff
     #mo_energy = mp._scf.mo_energy
@@ -95,9 +101,9 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     conv = False 
     eri_ao = mp.mol.intor('int2e_sph')
 
-    print("shift = ", mp.shift)
-    print ("thresh = ", mp.thresh)
-    print ("niter = ", mp.niter)
+    #print("shift = ", mp.shift)
+    #print ("thresh = ", mp.thresh)
+    #print ("niter = ", mp.niter)
 
     for it in range(niter):
         #if it == 5:
@@ -248,18 +254,18 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
                     for a in range(nvira):
                         A = a+nocca
                         c0 -= 1. * h2mo_aa[i,A,j,B] * tmp1_bar_aa[i,a,j,b]
-                        c1_a[j,B] += 2. * fock_hfa[i,A] * tmp1_bar_aa[i,a,j,b]
+                        c1_a[j,B] += css * 2. * fock_hfa[i,A] * tmp1_bar_aa[i,a,j,b]
                         for p in range(nmoa):
-                            c1_a[p,j] += 2. * h2mo_aa[i,A,p,B] *  tmp1_bar_aa[i,a,j,b]
-                            c1_a[p,B] -= 2. * h2mo_aa[i,A,j,p] *  tmp1_bar_aa[i,a,j,b]
+                            c1_a[p,j] += css * 2. * h2mo_aa[i,A,p,B] *  tmp1_bar_aa[i,a,j,b]
+                            c1_a[p,B] -= css * 2. * h2mo_aa[i,A,j,p] *  tmp1_bar_aa[i,a,j,b]
                 for i in range(noccb):
                     for a in range(nvirb):
                         A = a+noccb
                         c0 -= 1. * h2mo_ba[i,A,j,B] * tmp1_bar_ba[i,a,j,b]
-                        c1_a[j,B] += 2. * fock_hfb[i,A] * tmp1_bar_ba[i,a,j,b]
+                        c1_a[j,B] += cos * 2. * fock_hfb[i,A] * tmp1_bar_ba[i,a,j,b]
                         for p in range(nmoa):
-                            c1_a[p,j] += 2. * h2mo_ba[i,A,p,B] *  tmp1_bar_ba[i,a,j,b]
-                            c1_a[p,B] -= 2. * h2mo_ba[i,A,j,p] *  tmp1_bar_ba[i,a,j,b]
+                            c1_a[p,j] += cos * 2. * h2mo_ba[i,A,p,B] *  tmp1_bar_ba[i,a,j,b]
+                            c1_a[p,B] -= cos * 2. * h2mo_ba[i,A,j,p] *  tmp1_bar_ba[i,a,j,b]
                             
         for j in range(noccb):
             for b in range(nvirb):
@@ -268,18 +274,18 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
                     for a in range(nvirb):
                         A = a+noccb
                         c0 -= 1. * h2mo_bb[i,A,j,B] * tmp1_bar_bb[i,a,j,b]
-                        c1_b[j,B] += 2. * fock_hfb[i,A] * tmp1_bar_bb[i,a,j,b]
+                        c1_b[j,B] += css * 2. * fock_hfb[i,A] * tmp1_bar_bb[i,a,j,b]
                         for p in range(nmob):
-                            c1_b[p,j] += 2. * h2mo_bb[i,A,p,B] *  tmp1_bar_bb[i,a,j,b]
-                            c1_b[p,B] -= 2. * h2mo_bb[i,A,j,p] *  tmp1_bar_bb[i,a,j,b]
+                            c1_b[p,j] += css * 2. * h2mo_bb[i,A,p,B] *  tmp1_bar_bb[i,a,j,b]
+                            c1_b[p,B] -= css * 2. * h2mo_bb[i,A,j,p] *  tmp1_bar_bb[i,a,j,b]
                 for i in range(nocca):
                     for a in range(nvira):
                         A = a+nocca
                         c0 -= 1. * h2mo_ab[i,A,j,B] * tmp1_bar_ab[i,a,j,b]
-                        c1_b[j,B] += 2. * fock_hfa[i,A] * tmp1_bar_ab[i,a,j,b]
+                        c1_b[j,B] += cos * 2. * fock_hfa[i,A] * tmp1_bar_ab[i,a,j,b]
                         for p in range(nmoa):
-                            c1_b[p,j] += 2. * h2mo_ab[i,A,p,B] *  tmp1_bar_ab[i,a,j,b]
-                            c1_b[p,B] -= 2. * h2mo_ab[i,A,j,p] *  tmp1_bar_ab[i,a,j,b]
+                            c1_b[p,j] += cos * 2. * h2mo_ab[i,A,p,B] *  tmp1_bar_ab[i,a,j,b]
+                            c1_b[p,B] -= cos * 2. * h2mo_ab[i,A,j,p] *  tmp1_bar_ab[i,a,j,b]
         # symmetrize c1
         for p in range(nmoa):
             for q in range(nmoa):
@@ -471,11 +477,8 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
                                 c1_b[i,k] += 1. * tmp1_bb[i,a,j,b] * y1_bb[k,a,j,b]
                         for j in range(nocca):
                             for b in range(nvira):
-                                if mp.break_sym:
-                                    c1_b[i,k] += 1. * tmp1_ba[i,a,j,b] * y1_ba[i,a,k,b]
-                                else:
-                                    c1_b[i,k] += 1. * tmp1_ba[i,a,j,b] * y1_ba[k,a,j,b]
-                                    
+                                c1_b[i,k] += 1. * tmp1_ba[i,a,j,b] * y1_ba[i,a,k,b]
+    
     
             #[4]
             y1_aa = numpy.zeros((nocca,nvira,nocca,nvira))
@@ -793,34 +796,12 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         ene_tot = ene + nuc
         de = abs(ene_tot - ene_old)
         ene_old = ene_tot
-        print()
-        print("========================")
         print('iter = %d'%it, ' energy = %8.6f'%ene_tot, ' energy diff = %8.6f'%de, flush=True)
-        print()
 
         if de < mp.thresh:
             conv = True
             break
 
-        if mp.eval_fc:
-            print("Fermi contact using HF-like density")
-            rdm1 = mp.make_rdm1()
-            #R_reslv = None #[-1,4.0] #so primitive
-            mp.make_fc(rdm1) #, it, R_reslv)
-
-            #mp.make_fc(rdm1, it, R_reslv=None)
-            #print("Spin occupation numbers:")
-            #
-            #print("Fermi contact using correlated density")
-            ##rdm1 = mp.make_rdm1(use_t2=True)
-            #rdm1 = mp.make_rdm1(use_t2=True,use_ao=False)
-            #rdm1_ao =  (reduce(numpy.dot, (mo_coeff[0], rdm1[0], mo_coeff[0].T)), 
-            #            reduce(numpy.dot, (mo_coeff[1], rdm1[1], mo_coeff[1].T)))
-            #spinrdm1 = rdm1[0] - rdm1[1]
-            ##spinocc = numpy.sort(spinocc)[::-1]    
-            #print(spinocc[0:nocca])
-
-            
         #if it > 0:
         #    fock_a = 0.01*fock_a + 0.99*fock_a_old
         ### diagonalizing correlated Fock 
@@ -1030,13 +1011,16 @@ def mom_select(mp, mo_coeff_init, mo_coeff_new):
     #mp.ib = indxb
     #return indxa, indxb
 
-def make_rdm1(mp, use_t2=False, use_ao=True, **kwargs):
+def make_rdm1(mp, use_t2=False, **kwargs):
     '''One-particle density matrix
 
     Returns:
         A list of 2D ndarrays for alpha and beta spins
     '''
     mo_coeff = mp.mo_coeff
+    #print("mo_coeff")
+    #print(mo_coeff[0])
+    #print(mo_coeff[1])
     mo_occ   = mp._scf.mo_occ
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
@@ -1105,12 +1089,9 @@ def make_rdm1(mp, use_t2=False, use_ao=True, **kwargs):
         dOV = numpy.zeros((noccb,nvirb))
         d1 = (doo, (dov, dOV), (dov.T, dOV.T), dvv)
         rdm1 = uccsd_rdm._make_rdm1(mp, d1, with_frozen=True, ao_repr=False)
-        if use_ao:
-            rdm1_ao =  (reduce(numpy.dot, (mo_coeff[0], rdm1[0], mo_coeff[0].T)), 
-                        reduce(numpy.dot, (mo_coeff[1], rdm1[1], mo_coeff[1].T)))
-            return rdm1_ao
-        else:
-            return rdm1
+        rdm1_ao =  (reduce(numpy.dot, (mo_coeff[0], rdm1[0], mo_coeff[0].T)), 
+                    reduce(numpy.dot, (mo_coeff[1], rdm1[1], mo_coeff[1].T)))
+        return rdm1_ao
 # DO NOT make tag_array for DM here because the DM arrays may be modified and
 # passed to functions like get_jk, get_vxc.  These functions may take the tags
 # (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
@@ -1129,7 +1110,7 @@ def _gamma1_intermediates(mp, t2):
     dvvb += lib.einsum('mnea,mneb->ba', t2ab.conj(), t2ab)
     return ((dooa, doob), (dvva, dvvb))
 
-def make_fc(mp, dm0, it=None, R_reslv=None, hfc_nuc=None, verbose=None):
+def make_fc(mp, dm0, hfc_nuc=None, verbose=None):
     '''The contribution of Fermi-contact term and dipole-dipole interactions'''
     #log = logger.new_logger(hfcobj, verbose)
     mol = mp.mol
@@ -1142,29 +1123,6 @@ def make_fc(mp, dm0, it=None, R_reslv=None, hfc_nuc=None, verbose=None):
     spindm = dma - dmb
     effspin = mol.spin * .5
 
-    #if R_reslv is not None:
-    #    mo_coeff = mp.mo_coeff
-    #    nocca, noccb = mp.get_nocc()
-    #    dma_mo, dmb_mo = mp.make_rdm1(use_t2=True,use_ao=False)
-    #    spinnocca, U = scipy.linalg.eigh(dma_mo)
-    #    spinmoa = numpy.matmul(mo_coeff[0], U)
-    #    nao = mo_coeff[0].shape[0]
-    #    tmp = numpy.zeros((nao,nao))
-    #    for mu in range(nao):
-    #        for nu in range(nao):
-    #            tmp[mu,nu] = spinmoa[] * spinmoa[mu,nocca-1] * spinmoa[nu,nocca-1]
-    #    np = 1000
-    #    dz = (R_reslv[1] - R_reslv[0])/np
-    #    fname = "spinden_somo"+str(it)+".dat"
-    #    with open(fname, 'w') as f:
-    #        for i in range(np):
-    #            r = i*dz + R_reslv[0]
-    #            coords = [[0,0,r]]
-    #            h1fc = _get_integrals_fc_Rreslv(mol, coords)
-    #            fc = numpy.einsum('ij,ji', h1fc, tmp)
-    #            f.write(" %8.6f %8.6f \n"  %(r, fc))
-
-
     e_gyro = .5 * nist.G_ELECTRON
     nuc_mag = .5 * (nist.E_MASS/nist.PROTON_MASS)  # e*hbar/2m
     au2MHz = nist.HARTREE2J / nist.PLANCK * 1e-6
@@ -1173,13 +1131,13 @@ def make_fc(mp, dm0, it=None, R_reslv=None, hfc_nuc=None, verbose=None):
     hfc = []
     for i, atm_id in enumerate(hfc_nuc):
         nuc_gyro = get_nuc_g_factor(mol.atom_symbol(atm_id)) * nuc_mag
-        #h1 = _get_integrals_fcdip(mol, atm_id)
-        #fcsd = numpy.einsum('xyij,ji->xy', h1, spindm)
+        h1 = _get_integrals_fcdip(mol, atm_id)
+        fcsd = numpy.einsum('xyij,ji->xy', h1, spindm)
 
         h1fc = _get_integrals_fc(mol, atm_id)
         fc = numpy.einsum('ij,ji', h1fc, spindm)
 
-        #sd = fcsd + numpy.eye(3) * fc
+        sd = fcsd + numpy.eye(3) * fc
 
         print('FC of atom %d :'%atm_id, '%8.6f (in MHz)' %(2*fac * nuc_gyro * fc))
         #if hfcobj.verbose >= logger.INFO:
@@ -1211,13 +1169,8 @@ def _get_integrals_fc(mol, atm_id):
     ao = mol.eval_gto('GTOval', coords)
     return 4*numpy.pi/3 * numpy.einsum('ip,iq->pq', ao, ao)
 
-def _get_integrals_fc_Rreslv(mol, coords):
-    '''AO integrals for Fermi contact term'''
-    ao = mol.eval_gto('GTOval', coords)
-    return 4*numpy.pi/3 * numpy.einsum('ip,iq->pq', ao, ao)
 
-
-class UOBMP2(obmp2.OBMP2):
+class UOBMP2_SCS(obmp2.OBMP2):
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -1226,8 +1179,8 @@ class UOBMP2(obmp2.OBMP2):
     int_transform_os = int_transform_os
     mom_select = mom_select
     mom_reorder = mom_reorder
-    break_sym = False
-    #use_t2 = False
+    css = 1./3.
+    cos = 6./5.
 
     @lib.with_doc(obmp2.OBMP2.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
@@ -1240,13 +1193,12 @@ class UOBMP2(obmp2.OBMP2):
     make_rdm1 = make_rdm1
     #make_rdm2 = make_rdm2
     make_fc = make_fc
-    eval_fc = False
 
     def nuc_grad_method(self):
         from pyscf.grad import ump2
         return ump2.Gradients(self)
 
-OBMP2 = UOBMP2
+OBMP2 = UOBMP2_SCS
 
 #from pyscf import scf
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)

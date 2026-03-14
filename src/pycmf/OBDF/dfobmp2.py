@@ -26,8 +26,9 @@ import scipy.linalg
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
+#from pyscf.mp import mp2, obmp2_faster
 from pyscf.mp import mp2
-from . import obmp2_faster
+from ..OBMP import obmp2
 from pyscf import df
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
@@ -167,7 +168,8 @@ def make_veff(mp):
     import tracemalloc
     tracemalloc.start()
 
-    for istep, qgg in enumerate(mp.loop_ao2mo_ggoo_cgcg(mp.mo_coeff, mp.nocc)):
+    for istep, qgg in enumerate(mp.loop_ao2mo_ggoo_cgcg(mp.mo_coeff, 
+                                                        mp.nocc)):
         qgg = qgg.reshape(naux, nmo, nmo)
     
     print("qgg memory: %.1f MiB" % current_memory()[0])
@@ -206,11 +208,9 @@ def make_amp(mp):
     x = numpy.tile(mo_energy[:nocc,None] - mo_energy[None,nocc:],(nocc,nvir,1,1))
     x += numpy.einsum('ijkl -> klij', x) - mp.shift
     tmp1 = mp.ampf * h2mo/x
-
-    print("ampf", mp.ampf)
     
     tmp1_bar = numpy.zeros((nocc,nvir,nocc,nvir))
-    tmp1_bar = tmp1 - 0.5*numpy.einsum('iajb -> ibja', tmp1)   
+    tmp1_bar = tmp1 - 0.5*numpy.einsum('ijkl -> ilkj', tmp1)   
 
     print("tmp1: %.1f MiB" % current_memory()[0])
       
@@ -218,31 +218,23 @@ def make_amp(mp):
 
 def first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
     mo_coeff  = mp.mo_coeff
-    mo_energy = mp.mo_energy
     nmo  = mp.nmo
     nocc = mp.nocc
     nvir = mp.nmo - nocc
     naux = mp.with_df.get_naoaux()
 
-    eia = mo_energy[:nocc,None] - mo_energy[None,nocc:]
-
     c1 = numpy.zeros((nmo,nmo), dtype=fock_hf.dtype)
-    c0_1 = 0
+
     from pyscf.lib import current_memory
     import tracemalloc
     tracemalloc.start()
 
     for istep, qov in enumerate(mp.loop_ao2mo(mp.mo_coeff, mp.nocc)):
         qov = qov
+    
     for i in range(nocc):
-        buf = numpy.dot(qov[:,i*nvir:(i+1)*nvir].T,qov).reshape(nvir,nocc,nvir)
-        gi = numpy.array(buf, copy=False)
-        gi = gi.reshape(nvir,nocc,nvir).transpose(1,0,2)
-        t2i = (gi/lib.direct_sum('jb+a->jba', eia, eia[i])).reshape(nvir,nocc,nvir)
-        
-        c0 -= 4.*numpy.einsum("ajb, ajb",buf, tmp1_bar[i,:,:,:])
-        #c0_1 -= 4.*numpy.einsum("ajb, ajb", buf, t2i) 
-        
+        c0 -= 4.*numpy.einsum("ajb, ajb -> ", numpy.dot(qov[:,i*nvir:(i+1)*nvir].T, qov).reshape(nvir, nocc, nvir), tmp1_bar[i,:,:,:])
+    print("c0 memory: %.1f MiB" % current_memory()[0])
 ##################################################################################
     for istep, qgv in enumerate(mp.loop_ao2mo_cgcv(mp.mo_coeff, mp.nocc)):
         qgv = qgv
@@ -251,7 +243,6 @@ def first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
 
     print("ovgv memory: %.1f MiB" % current_memory()[0])
     del(qgv)
-    
 ####################################################################################
     for istep, qog in enumerate(mp.loop_ao2mo_goog_cocg(mp.mo_coeff, mp.nocc)):
         qog = qog
@@ -580,7 +571,8 @@ def get_frozen_mask(mp):
     In the returned boolean (mask) array of frozen orbital indices, the
     element is False if it corresonds to the frozen orbital.
     '''
-    moidx = numpy.ones(mp.mo_occ.size, dtype=bool)
+    #moidx = numpy.ones(mp.mo_occ.size, dtype=bool)
+    moidx = numpy.ones(mp.mo_occ.size, dtype= bool)
     if mp._nmo is not None:
         moidx[mp._nmo:] = False
     elif mp.frozen is None:
@@ -726,7 +718,7 @@ class DFOBMP2(obmp2_faster.OBMP2):
     
     def loop_ao2mo(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        nmo = mo.shape[0]   # In ra số hàng (số cơ sở AO)
         ijslice = (0, nocc, nocc, nmo)
         Lov = None
         with_df = self.with_df
@@ -737,9 +729,10 @@ class DFOBMP2(obmp2_faster.OBMP2):
         max_memory = max(2000, self.max_memory*.9-mem_now)
         blksize = int(min(naux, max(with_df.blockdim,
                                     (max_memory*1e6/8-nocc*nvir**2*2)/(nocc*nvir))))
+        
         for eri1 in with_df.loop(blksize=blksize):
+            print("eri1 shape:", eri1.shape)
             Lov = _ao2mo.nr_e2(eri1, mo, ijslice, aosym='s2', out=Lov)
-            print("eri1", eri1.shape)
             yield Lov
 
     def loop_ao2mo_goog_cocg(self, mo_coeff, nocc):
@@ -1010,20 +1003,21 @@ if __name__ == '__main__':
     from pyscf import gto
     mol = gto.Mole()
     mol.atom = [
-            [6 , (0. , 0 , 0.6)],
-            [8 , (0. , 0  , 0)]]
+            [9 , (0. , 0 , 0.6)],
+            [9 , (0. , 0  , 0)]]
 
 
-    mol.basis = 'ccpvdz'
+    mol.basis = 'ccpvqz'
     mol.build()
     print("number AO", mol.nao_nr())
     mf = scf.RHF(mol).density_fit().run()
     mp = DFOBMP2(mf)
-    mp.second_order = True
     mp.verbose = 5
     st = time.time()
     mp.run()
     print("time", time.time()-st)
+
+    mp.loop_ao2mo(mf.mo_coeff, mp.nocc)
     #print(emp2 - -0.204019967288338)
     #pt.max_memory = 1
     #emp2, t2 = pt.kernel()

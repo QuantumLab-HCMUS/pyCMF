@@ -29,71 +29,88 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pycmf.obmp2 import obmp2
+from pycmf.OBMP import obmp2_slow as obmp2
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
-
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
 
 def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
            verbose=logger.NOTE):
-    if mp.mo_energy is None or mp.mo_coeff is None:
-        mo_coeff_init  = mp._scf.mo_coeff
-        mo_coeff       = mp._scf.mo_coeff
-        mo_energy      = mp._scf.mo_energy
-    else:
-        mo_coeff_init  = mp.mo_coeff
-        mo_coeff  = mp.mo_coeff
-        mo_energy = mp.mo_energy
-
-    log = logger.new_logger(mp, verbose)
-    t0 = (time.process_time(), time.time())
-
     nuc = mp._scf.energy_nuc()
-    ene_hf = mp._scf.energy_tot()
+    log = logger.new_logger(mp, verbose)
 
-    #initializing w/ HF
-    mo_occ    = mp._scf.mo_occ
+    if (mo_coeff is None) and (mo_energy is None) :
+        mp.mo_coeff  = mp._scf.mo_coeff
+        mp.mo_energy = mp._scf.mo_energy
 
+
+    #prepare initial MOs
+    idx_a = numpy.argsort(mp._scf.mo_occ[0])[::-1]
+    idx_b = numpy.argsort(mp._scf.mo_occ[1])[::-1]
+
+    #print("idx_a", idx_a)
+    #print("idx_b", idx_b)
+
+    nmoa, nmob = mp.get_nmo()    
     nocca, noccb = mp.get_nocc()
-    nmoa, nmob = mp.get_nmo()
-    nvira, nvirb = nmoa-nocca, nmob-noccb
-    mo_ea, mo_eb = mo_energy
+    nvira = nmoa - nocca
+    nvirb = nmob - noccb
+
+    idx_occ_a = idx_a[0:nocca]
+    idx_occ_b = idx_b[0:noccb]
+    idx_vir_a = idx_a[nocca:nmoa]
+    idx_vir_b = idx_b[noccb:nmob]
+
+    mo_coeff_init = numpy.zeros_like(mp._scf.mo_coeff)
+    mo_coeff_init[0][:,:nocca]     = mp._scf.mo_coeff[0][:,idx_occ_a[:nocca]]
+    mo_coeff_init[1][:,:noccb]     = mp._scf.mo_coeff[1][:,idx_occ_b[:noccb]]
+    mo_coeff_init[0][:,nocca:nmoa] = mp._scf.mo_coeff[0][:,idx_vir_a[:nvira]]
+    mo_coeff_init[1][:,noccb:nmob] = mp._scf.mo_coeff[1][:,idx_vir_b[:nvirb]]
+
+    mo_energy_init = numpy.zeros_like(mp._scf.mo_energy)
+    mo_energy_init[0][:nocca]     = mp._scf.mo_energy[0][idx_occ_a[:nocca]]
+    mo_energy_init[1][:noccb]     = mp._scf.mo_energy[1][idx_occ_b[:noccb]]
+    mo_energy_init[0][nocca:nmoa] = mp._scf.mo_energy[0][idx_vir_a[:nvira]]
+    mo_energy_init[1][noccb:nmob] = mp._scf.mo_energy[1][idx_vir_b[:nvirb]]
+
+    #initialize mp
+    mp.mo_occ = numpy.zeros_like(mp._scf.mo_occ)
+    mp.mo_occ[0][:nocca] = 1.
+    mp.mo_occ[1][:noccb] = 1.
+
+    mo_ea, mo_eb = mp.mo_energy
     eia_a = mo_ea[:nocca,None] - mo_ea[None,nocca:]
     eia_b = mo_eb[:noccb,None] - mo_eb[None,noccb:]
 
     shift = mp.shift
-
     niter = mp.niter
     ene_old = 0.
     conv = False 
-    t0 = log.timer('initialization', *t0)        
-
-    #eri_ao = mp.mol.intor('int2e_sph')
-    #t0 = log.timer('AO 2e-integral generation', *t0)        
 
     logger.info(mp, 'shift = %g', mp.shift)
     logger.info(mp, 'thresh = %g ', mp.thresh)
-    logger.info(mp, 'css = %g', mp.css)
-    logger.info(mp, 'cos = %g', mp.cos)
-
 
     for it in range(niter):
-        
-        t0 = (time.process_time(), time.time())
+
+        t0 = (time.perf_counter(), time.time())
+
+        if mp.mom_select:
+            mp.mo_coeff, mp.mo_energy = mp.mom_occ_(mo_coeff_init)
 
         h1ao = mp._scf.get_hcore(mp.mol)
-        h1mo_a = numpy.matmul(mo_coeff[0].T,numpy.matmul(h1ao,mo_coeff[0]))
-        h1mo_b = numpy.matmul(mo_coeff[1].T,numpy.matmul(h1ao,mo_coeff[1]))
+        h1mo_a = numpy.matmul(mp.mo_coeff[0].T,numpy.matmul(h1ao,mp.mo_coeff[0]))
+        h1mo_b = numpy.matmul(mp.mo_coeff[1].T,numpy.matmul(h1ao,mp.mo_coeff[1]))
         
         #####################
         ### Hartree-Fock part
+        fock_hfa = numpy.zeros((nmoa,nmoa), dtype=h1mo_a.dtype)
+        fock_hfb = numpy.zeros((nmob,nmob), dtype=h1mo_b.dtype)
 
-        fock_hfa = h1mo_a
-        fock_hfb = h1mo_b
+        fock_hfa += h1mo_a
+        fock_hfb += h1mo_b
 
         veffa, veffb, c0 = make_veff(mp)
         fock_hfa += veffa
@@ -102,8 +119,10 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         if it > 0:
             fock_a_old = fock_a
             fock_b_old = fock_b
-        fock_a = 0
-        fock_b = 0
+
+        fock_a = numpy.zeros((nmoa,nmoa), dtype=fock_hfa.dtype)
+        fock_b = numpy.zeros((nmob,nmob), dtype=fock_hfb.dtype)
+
         fock_a += fock_hfa
         fock_b += fock_hfb
 
@@ -164,6 +183,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         de = abs(ene_tot - ene_old)
         ene_old = ene_tot
         ss_ref, ss_res, ss_prj = make_S2(mp, tmp1_bar_ab)
+
         print()
         logger.info(mp, '========================')
         logger.info(mp, 'iter = %d  energy = %8.6f energy diff = %8.6f', it, ene_tot, de)
@@ -174,16 +194,10 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
             break
 
         ### diagonalizing correlated Fock 
-        mo_energy[0], U = scipy.linalg.eigh(fock_a)
-        mo_coeff[0] = numpy.matmul(mo_coeff[0], U)
-        mo_energy[1], U = scipy.linalg.eigh(fock_b)
-        mo_coeff[1] = numpy.matmul(mo_coeff[1], U)
-
-        mp.mo_energy = mo_energy
-        mp.mo_coeff  = mo_coeff
-
-        if mp.eval_IPEA:
-            ipea = mp.make_IPEA()
+        mp.mo_energy[0], U = scipy.linalg.eigh(fock_a)
+        mp.mo_coeff[0] = numpy.matmul(mp.mo_coeff[0], U)
+        mp.mo_energy[1], U = scipy.linalg.eigh(fock_b)
+        mp.mo_coeff[1] = numpy.matmul(mp.mo_coeff[1], U)
 
     e_corr = ene_tot - ene_hf
 
@@ -195,7 +209,10 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     print("UOB-MP2 energy = ", ene_tot)
 
-    return ene_tot, tmp1_bar
+    if mp.eval_IPEA:
+        mp.make_IPEA()
+
+
 
     ######################
 
@@ -241,10 +258,7 @@ def make_veff(mp):
 
 
 def make_amp(mp):
-    css = mp.css
-    cos = mp.cos
     log = logger.new_logger(mp, verbose=5)
-
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
     nvira, nvirb = nmoa-nocca, nmob-noccb
@@ -256,7 +270,7 @@ def make_amp(mp):
     co_b= numpy.asarray(mo_coeff[1][:,:noccb], order='F')
     cv_b = numpy.asarray(mo_coeff[1][:,noccb:], order='F')
     
-    t0 = (time.process_time(), time.time())
+    t0 = (time.perf_counter(), time.time())
 
     h2mo_aa = ao2mo.general(mp._scf._eri, (co_a,cv_a,co_a,cv_a))
     h2mo_aa = h2mo_aa.reshape(nocca,nvira,nocca,nvira)
@@ -267,27 +281,25 @@ def make_amp(mp):
     h2mo_bb = ao2mo.general(mp._scf._eri, (co_b,cv_b,co_b,cv_b))
     h2mo_bb = h2mo_bb.reshape(noccb,nvirb,noccb,nvirb)
     
-    #h2mo_ba = ao2mo.general(mp._scf._eri, (co_b,cv_b,co_a,cv_a))
-    #h2mo_ba = h2mo_ba.reshape(noccb,nvirb,nocca,nvira)
     h2mo_ba = numpy.transpose(h2mo_ab,(2,3,0,1))
     
     t1 = log.timer('making amplitude: integral transform', *t0)
-
+    
     x = numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(nocca,nvira,1,1))
-    x += numpy.einsum('ijkl -> klij', x) - mp.shift
-    tmp1_aa = 1. *css* h2mo_aa/x
+    x += lib.einsum('ijkl -> klij', x) - mp.shift
+    tmp1_aa = 1. * h2mo_aa/x
 
     x = numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(noccb,nvirb,1,1))
-    x += numpy.einsum('ijkl -> klij', x) - mp.shift
-    tmp1_bb = 1. *css* h2mo_bb/x
+    x += lib.einsum('ijkl -> klij', x) - mp.shift
+    tmp1_bb = 1. * h2mo_bb/x
 
-    x = numpy.einsum('ijkl -> klij',numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(noccb,nvirb,1,1)))
+    x = lib.einsum('ijkl -> klij',numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(noccb,nvirb,1,1)))
     x += numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(nocca,nvira,1,1)) - mp.shift
-    tmp1_ab = 1. *cos* h2mo_ab/x
+    tmp1_ab = 1. * h2mo_ab/x
 
-    x = numpy.einsum('ijkl -> klij',numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(nocca,nvira,1,1)))
+    x = lib.einsum('ijkl -> klij',numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(nocca,nvira,1,1)))
     x += numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(noccb,nvirb,1,1)) - mp.shift
-    tmp1_ba = 1. *cos* h2mo_ba/x
+    tmp1_ba = 1. * h2mo_ba/x
 
     tmp1_bar_aa = tmp1_aa - numpy.transpose(tmp1_aa,(0,3,2,1))
     tmp1_bar_bb = tmp1_bb - numpy.transpose(tmp1_bb,(0,3,2,1))
@@ -318,7 +330,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     cv_b = numpy.asarray(mo_coeff[1][:,noccb:], order='F')
     cg_b = numpy.asarray(mo_coeff[1][:,:], order='F')
 
-    t0 = (time.process_time(), time.time())
+    t0 = (time.perf_counter(), time.time())
 
     ######################## aa ##########################
     h2mo_aa_ovov = ao2mo.general(mp._scf._eri, (co_a,cv_a,co_a,cv_a))
@@ -430,9 +442,9 @@ def second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0):
     c1_b[:noccb,:noccb] += lib.einsum('iajb,iakb -> jk', tmp1_ab, y1_ab)
     
     c0 -= lib.einsum('ijkl,ijkl->', tmp1_aa,y1_aa) +\
-         lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
+          lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
     c0 -= lib.einsum('ijkl,ijkl->', tmp1_ab,y1_ab) +\
-         lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
+          lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
 
     #[3]
     y1_aa = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_aa)
@@ -455,9 +467,9 @@ def second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0):
     c1_b[:noccb,:noccb] -= lib.einsum('iajb,ialb -> jl', tmp1_ab, y1_ab)
     
     c0 += lib.einsum('ijkl,ijkl->', tmp1_aa,y1_aa) +\
-         lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
+          lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
     c0 += lib.einsum('ijkl,ijkl->', tmp1_ab,y1_ab) +\
-         lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
+          lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
 
     #[5]
     y1_a  = lib.einsum('iajb,kajb -> ik', tmp1_aa, tmp1_bar_aa)
@@ -521,84 +533,73 @@ def make_IPEA(mp):
     co_b= numpy.asarray(mo_coeff[1][:,:noccb], order='F')
     cv_b = numpy.asarray(mo_coeff[1][:,noccb:], order='F')
 
-    ####### evaluating IP 
+    ## evaluating IP 
     h2mo_ovoo_aa = ao2mo.general(mp._scf._eri, (co_a,cv_a,co_a,co_a), compact=False)
     h2mo_ovoo_aa = h2mo_ovoo_aa.reshape(nocca,nvira,nocca,nocca)
 
     h2mo_ovoo_ba = ao2mo.general(mp._scf._eri, (co_b,cv_b,co_a,co_a), compact=False)
     h2mo_ovoo_ba = h2mo_ovoo_ba.reshape(noccb,nvirb,nocca,nocca)
 
-    ipea = []
-
-    for h in range(nocca):
-        tmp1_aa = numpy.zeros((nocca,nvira,nocca))
-        tmp1_ba = numpy.zeros((noccb,nvirb,nocca))
-        for j in range(nocca):
-            for i in range(nocca):
-                for a in range(nvira):
-                    x = mo_energy[0][i] + mo_energy[0][j] - mo_energy[0][a+nocca] - mo_energy[0][h] - mp.shift
-                    tmp1_aa[i,a,j] = mp.css * h2mo_ovoo_aa[i,a,j,h]/x
-            for i in range(noccb):
-                for a in range(nvirb):
-                    x = mo_energy[1][i] + mo_energy[0][j] - mo_energy[1][a+noccb] - mo_energy[0][h] - mp.shift
-                    tmp1_ba[i,a,j] = mp.cos * h2mo_ovoo_ba[i,a,j,h]/x
-
-        tmp1_bar_aa = mp.ampf * (tmp1_aa - numpy.transpose(tmp1_aa,(2,1,0)))
-        tmp1_bar_ba = mp.ampf * tmp1_ba
-
-        tmp2 = 0.
-        for j in range(nocca):
-            for i in range(nocca):
-                for a in range(nvira):
-                    tmp2 +=  tmp1_bar_aa[i,a,j] * h2mo_ovoo_aa[i,a,j,h]
-            for i in range(noccb):
-                for a in range(nvirb):
-                    tmp2 +=  tmp1_bar_ba[i,a,j] * h2mo_ovoo_ba[i,a,j,h]
-        ip_obmp2 = eV*(-mo_energy[0][h] + 1.*tmp2)
-        ipea.append(ip_obmp2)
-        logger.info(mp, "obmp2 orb energy %8.6f (eV) ip_obmp2 %8.6f (eV)", -eV*mo_energy[0][h], ip_obmp2)
-
-    ###### evaluating EA ######
-    h2mo_ovvv_bb = ao2mo.general(mp._scf._eri, (co_b,cv_b,cv_b,cv_b), compact=False)
-    h2mo_ovvv_bb = h2mo_ovvv_bb.reshape(noccb,nvirb,nvirb,nvirb)
-
-    h2mo_ovvv_ab = ao2mo.general(mp._scf._eri, (co_a,cv_a,cv_b,cv_b), compact=False)
-    h2mo_ovvv_ab = h2mo_ovvv_ab.reshape(nocca,nvira,nvirb,nvirb)
-    
-    #for L in range(noccb,min(noccb+10,nvirb)): 
-    L = noccb
-    tmp1_bb = numpy.zeros((noccb,nvirb,nvirb))
-    tmp1_ab = numpy.zeros((nocca,nvira,nvirb))
-    for b in range(nvirb):
-        for i in range(noccb):
-            for a in range(nvirb):
-                x = mo_energy[1][i] + mo_energy[1][L] - mo_energy[1][a+noccb] - mo_energy[1][b+noccb] - mp.shift
-                tmp1_bb[i,a,b] = mp.css * h2mo_ovvv_bb[i,a,0,b]/x
-        for i in range(nocca):
-            for a in range(nvira):
-                x = mo_energy[0][i] + mo_energy[1][L] - mo_energy[0][a+nocca] - mo_energy[1][b+noccb] - mp.shift
-                tmp1_ab[i,a,b] = mp.cos * h2mo_ovvv_ab[i,a,0,b]/x
-    tmp1_bar_bb = mp.ampf * (tmp1_bb - numpy.transpose(tmp1_bb,(0,2,1)))
-    tmp1_bar_ab = mp.ampf * tmp1_ab 
-
+    h = nocca-1 #HOMO
+    tmp1_aa = numpy.zeros((nocca,nvira,nocca))
+    for i in range(nocca):
+        for a in range(nvira):
+            for j in range(nocca):
+                x = mo_energy[0][i] + mo_energy[0][j] - mo_energy[0][a+nocca] - mo_energy[0][h] - mp.shift
+                tmp1_aa[i,a,j] = mp.ampf * h2mo_ovoo_aa[i,a,j,h]/x
+    tmp1_ba = numpy.zeros((noccb,nvirb,nocca))
+    for i in range(noccb):
+        for a in range(nvirb):
+            for j in range(nocca):
+                x = mo_energy[1][i] + mo_energy[0][j] - mo_energy[1][a+noccb] - mo_energy[0][h] - mp.shift
+                tmp1_ba[i,a,j] = mp.ampf * h2mo_ovoo_ba[i,a,j,h]/x
+    tmp1_bar_aa = tmp1_aa - numpy.transpose(tmp1_aa,(2,1,0))
+    tmp1_bar_ba = tmp1_ba
     tmp2 = 0.
-    for b in range(nvirb):
-        for i in range(noccb):
-            for a in range(nvirb):
-                tmp2 +=  tmp1_bar_bb[i,a,b] * h2mo_ovvv_bb[i,a,0,b]
-        for i in range(nocca):
-            for a in range(nvira):
-                tmp2 +=  tmp1_bar_ab[i,a,b] * h2mo_ovvv_ab[i,a,0,b]
-    ea_obmp2 = eV*(-mo_energy[1][L] - 1.*tmp2)
-    ipea.append(ea_obmp2)
-    logger.info(mp, "obmp2 lumo %8.6f (eV) ea_obmp2 %8.6f (eV)", -eV*mo_energy[1][L], ea_obmp2)
+    for a in range(nvira):
+        for i in range(nocca-1):
+            for j in range(nocca-1):
+                tmp2 +=  tmp1_bar_aa[i,a,j] * h2mo_ovoo_aa[i,a,j,h]
+        for i in range(noccb-1):
+            for j in range(noccb-1):
+                tmp2 +=  tmp1_bar_ba[i,a,j] * h2mo_ovoo_ba[i,a,j,h]
+    ip_obmp2 = eV*(-mo_energy[0][h] + 1.*tmp2)
 
-    fname = 'ipea-'+str(mp.css)+'-'+str(mp.cos)+'.txt'
-    with open(fname, 'w') as f:
-        for i in range(len(ipea)):
-            f.write(str(ipea[i])+'\n')
+    ## evaluating EA 
+    h2mo_ovvv_aa = ao2mo.general(mp._scf._eri, (co_a,cv_a,cv_a,cv_a), compact=False)
+    h2mo_ovvv_aa = h2mo_ovvv_aa.reshape(nocca,nvira,nvira,nvira)
 
-    return ipea
+    h2mo_ovvv_ba = ao2mo.general(mp._scf._eri, (co_b,cv_b,cv_a,cv_a), compact=False)
+    h2mo_ovvv_ba = h2mo_ovvv_ba.reshape(noccb,nvirb,nvira,nvira)
+    
+    L = nocca #LUMO
+    tmp1_aa = numpy.zeros((nocca,nvira,nvira))
+    for i in range(nocca):
+        for a in range(nvira):
+            for b in range(nvira):
+                x = mo_energy[0][i] + mo_energy[0][L] - mo_energy[0][a+nocca] - mo_energy[0][b+nocca] - mp.shift
+                tmp1_aa[i,a,b] = mp.ampf * h2mo_ovvv_aa[i,a,0,b]/x
+    tmp1_ba = numpy.zeros((noccb,nvirb,nvira))
+    for i in range(noccb):
+        for a in range(nvirb):
+            for b in range(nvira):
+                x = mo_energy[1][i] + mo_energy[0][L] - mo_energy[1][a+noccb] - mo_energy[0][b+nocca] - mp.shift
+                tmp1_ba[i,a,b] = mp.ampf * h2mo_ovvv_ba[i,a,0,b]/x
+    tmp1_bar_aa = tmp1_aa - numpy.transpose(tmp1_aa,(0,2,1))
+    tmp1_bar_ba = tmp1_ba 
+    tmp2 = 0.
+    for b in range(1,nvira):
+        for a in range(1,nvira):
+            for i in range(nocca):
+                tmp2 +=  tmp1_bar_aa[i,a,b] * h2mo_ovvv_aa[i,a,0,b]
+        for a in range(1,nvirb):
+            for i in range(noccb):
+                tmp2 +=  tmp1_bar_ba[i,a,b] * h2mo_ovvv_ba[i,a,0,b]
+    ea_obmp2 = eV*(-mo_energy[0][L] - 1.*tmp2)
+    
+    logger.info(mp, "obmp2 homo %8.6f (eV) ip_obmp2 %8.6f (eV)", -eV*mo_energy[0][h], ip_obmp2)
+    logger.info(mp, "obmp2 lumo %8.6f (eV) ea_obmp2 %8.6f (eV)", -eV*mo_energy[0][L], ea_obmp2)
+    
 
 def int_transform_ss(eri_ao, mo_coeff):
     nao = mo_coeff.shape[0]
@@ -694,81 +695,6 @@ def get_frozen_mask(mp):
         raise NotImplementedError
     return moidxa,moidxb
 
-def mom_reorder(mp, mo_coeff):
-    import copy
-    mo_coeff_save = copy.copy(mo_coeff)
-    #mo_energy_save = copy.copy(mo_energy)
-    #mo_energy = mp.mo_energy
-    mo_coeff = copy.copy(mo_coeff_save)
-    print("before")
-    print(mo_coeff[0][:,:4])
-    ia, ib = mp.occ_exc
-    aa, ab = mp.vir_exc
-    #print("ia ", ia)
-    #print(mo_coeff_save[0][:,ia])
-    mo_coeff[0][:,ia] = mo_coeff_save[0][:,aa]
-    #mo_energy[0][ia]  = mo_energy_save[0][aa]
-    #print("test")
-    #print(mo_coeff_save[0][:,ia])
-    mo_coeff[0][:,aa] = mo_coeff_save[0][:,ia]
-    #mo_energy[0][aa]  = mo_energy_save[0][ia]
-    if (ib is not None) and (ab is not None):
-        mo_coeff[1][:,ib] = mo_coeff_save[1][:,ab]
-        mo_coeff[1][:,ab] = mo_coeff_save[1][:,ib]
-    print("after")
-    print(mo_coeff[0][:,:4])
-    return mo_coeff #, mo_energy
-        
-def mom_select(mp, mo_coeff_init, mo_coeff_new):
-    #print("old")
-    #print(mo_coeff_init[0][:,:4])
-    #print("new")
-    #print(mo_coeff_new[0][:,:4])
-    ovi = mp._scf.get_ovlp()
-    nocca, noccb = mp.get_nocc()
-    nmoa, nmob = mp.get_nmo()
-    ia, ib = mp.occ_exc
-    aa, ab = mp.vir_exc
-    Oa = numpy.matmul(mo_coeff_init[0][:,0:nocca].T,
-                      numpy.matmul(ovi,mo_coeff_new[0][:,:]))
-    #print("Oa")
-    #print(Oa)
-    Pa = []
-    for j in range(nmoa):
-        tmp = 0.
-        for i in range(nocca):
-            tmp += Oa[i,j]
-        Pa.append(abs(tmp))
-        #print("Paj = ", Pa[j])
-    max_el = max(Pa)
-    indxa = 0
-    for j in range(nmoa):
-        if Pa[j] == max_el:
-            indxa = j
-    if (ib is not None) and (ab is not None):
-        Ob = numpy.matmul(mo_coeff_init[1][:,0:noccb].T,
-                          numpy.matmul(ovi,mo_coeff_new[1][:,:]))
-        Pb = []
-        for j in range(nmob):
-            tmp = 0.
-            for i in range(noccb):
-                tmp += Ob[i,j]
-            Pb.append(abs(tmp))
-        max_el = max(Pa)
-        indxb = 0
-        for j in range(nmob):
-            if Pa[j] == max_el:
-                indxb = j
-    else:
-        indxb = None
-
-    print("indxa = %d"%indxa, "Pa = %8.6f"%Pa[indxa])
-    if indxb is not None:
-        print("indxb = %d"%indxb, "Pb = %8.6f"%Pb[indxb])
-    mp.vir_exc = [indxa, indxb]
-    #mp.ib = indxb
-    #return indxa, indxb
-
 def make_rdm1(mp, use_t2=True, use_ao=False, **kwargs):
     '''One-particle density matrix
 
@@ -776,7 +702,7 @@ def make_rdm1(mp, use_t2=True, use_ao=False, **kwargs):
         A list of 2D ndarrays for alpha and beta spins
     '''
     mo_coeff = mp.mo_coeff
-    mo_occ   = mp._scf.mo_occ
+    mo_occ   = mp.mo_occ
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
     nvira, nvirb = nmoa-nocca, nmob-noccb
@@ -1085,6 +1011,32 @@ def make_fc(mp, dm0, it=None, R_reslv=None, hfc_nuc=None, verbose=None):
     dma, dmb = dm0
     spindm = dma - dmb
     effspin = mol.spin * .5
+    #print("we are here in make_fc")
+    #print(dma)
+    #print(dmb)
+    #if R_reslv is not None:
+    #    mo_coeff = mp.mo_coeff
+    #    nocca, noccb = mp.get_nocc()
+    #    dma_mo, dmb_mo = mp.make_rdm1(use_t2=True,use_ao=False)
+    #    spinnocca, U = scipy.linalg.eigh(dma_mo)
+    #    spinmoa = numpy.matmul(mo_coeff[0], U)
+    #    nao = mo_coeff[0].shape[0]
+    #    tmp = numpy.zeros((nao,nao))
+    #    for mu in range(nao):
+    #        for nu in range(nao):
+    #            tmp[mu,nu] = spinmoa[] * spinmoa[mu,nocca-1] * spinmoa[nu,nocca-1]
+    #    np = 1000
+    #    dz = (R_reslv[1] - R_reslv[0])/np
+    #    fname = "spinden_somo"+str(it)+".dat"
+    #    with open(fname, 'w') as f:
+    #        for i in range(np):
+    #            r = i*dz + R_reslv[0]
+    #            coords = [[0,0,r]]
+    #            h1fc = _get_integrals_fc_Rreslv(mol, coords)
+    #            fc = numpy.einsum('ij,ji', h1fc, tmp)
+    #            f.write(" %8.6f %8.6f \n"  %(r, fc))
+
+
     e_gyro = .5 * nist.G_ELECTRON
     nuc_mag = .5 * (nist.E_MASS/nist.PROTON_MASS)  # e*hbar/2m
     au2MHz = nist.HARTREE2J / nist.PLANCK * 1e-6
@@ -1093,12 +1045,15 @@ def make_fc(mp, dm0, it=None, R_reslv=None, hfc_nuc=None, verbose=None):
     hfc = []
     for i, atm_id in enumerate(hfc_nuc):
         nuc_gyro = get_nuc_g_factor(mol.atom_symbol(atm_id)) * nuc_mag
+        #h1 = _get_integrals_fcdip(mol, atm_id)
+        #fcsd = numpy.einsum('xyij,ji->xy', h1, spindm)
+
         h1fc = _get_integrals_fc(mol, atm_id)
         fc = numpy.einsum('ij,ji', h1fc, spindm)
 
         #sd = fcsd + numpy.eye(3) * fc
 
-        logger.info(mp, 'FC of atom %d : %8.6f (in MHz)', atm_id, (2.*fac * nuc_gyro * fc))
+        logger.info(mp, 'FC of atom %d : %8.6f (in MHz)', atm_id, (2*fac * nuc_gyro * fc))
         #if hfcobj.verbose >= logger.INFO:
         #    _write(hfcobj, align(fac*nuc_gyro*sd)[0], 'SD of atom %d (in MHz)' % atm_id)
         #hfc.append(fac * nuc_gyro * fcsd)
@@ -1134,59 +1089,48 @@ def _get_integrals_fc_Rreslv(mol, coords):
     return 4*numpy.pi/3 * numpy.einsum('ip,iq->pq', ao, ao)
 
 
-def mom_occ_(mp, occorb, setocc):
-    '''Use maximum overlap method to determine occupation number for each orbital in every
-    iteration. It can be applied to unrestricted HF/KS and restricted open-shell
-    HF/KS.'''
-    from pyscf.scf import uhf, rohf
-    if isinstance(mf, uhf.UHF):
-        coef_occ_a = occorb[0][:, setocc[0]>0]
-        coef_occ_b = occorb[1][:, setocc[1]>0]
-    elif isinstance(mf, rohf.ROHF):
-        if mf.mol.spin != (numpy.sum(setocc[0]) - numpy.sum(setocc[1])):
-            raise ValueError('Wrong occupation setting for restricted open-shell calculation.')
-        coef_occ_a = occorb[:, setocc[0]>0]
-        coef_occ_b = occorb[:, setocc[1]>0]
-    else:
-        raise RuntimeError('Cannot support this class of instance %s' % mf)
-    log = logger.Logger(mf.stdout, mf.verbose)
-    def get_occ(mo_energy=None, mo_coeff=None):
-        if mo_energy is None: mo_energy = mf.mo_energy
-        if mo_coeff is None: mo_coeff = mf.mo_coeff
-        if isinstance(mf, rohf.ROHF): mo_coeff = numpy.array([mo_coeff, mo_coeff])
-        mo_occ = numpy.zeros_like(setocc)
-        nocc_a = int(numpy.sum(setocc[0]))
-        nocc_b = int(numpy.sum(setocc[1]))
-        s_a = reduce(numpy.dot, (coef_occ_a.T, mf.get_ovlp(), mo_coeff[0]))
-        s_b = reduce(numpy.dot, (coef_occ_b.T, mf.get_ovlp(), mo_coeff[1]))
-        #choose a subset of mo_coeff, which maximizes <old|now>
-        idx_a = numpy.argsort(numpy.einsum('ij,ij->j', s_a, s_a))[::-1]
-        idx_b = numpy.argsort(numpy.einsum('ij,ij->j', s_b, s_b))[::-1]
-        mo_occ[0][idx_a[:nocc_a]] = 1.
-        mo_occ[1][idx_b[:nocc_b]] = 1.
+def mom_occ_(mp, orb_init):
+    log = logger.Logger(mp._scf.stdout, mp._scf.verbose)
+    nmoa, nmob = mp.get_nmo()
+    mo_coeff = mp.mo_coeff
+    mo_energy = mp.mo_energy
+    coef_occ_a = orb_init[0][:, mp.mo_occ[0]>0]
+    coef_occ_b = orb_init[1][:, mp.mo_occ[1]>0]
+    mo_occ = numpy.zeros_like(mp.mo_occ)
+    nocc_a = int(numpy.sum(mp.mo_occ[0]))
+    nocc_b = int(numpy.sum(mp.mo_occ[1]))
+    s_a = reduce(numpy.dot, (coef_occ_a.T, mp._scf.get_ovlp(), mo_coeff[0]))
+    s_b = reduce(numpy.dot, (coef_occ_b.T, mp._scf.get_ovlp(), mo_coeff[1]))
 
-        log.debug(' New alpha occ pattern: %s', mo_occ[0])
-        log.debug(' New beta occ pattern: %s', mo_occ[1])
-        if isinstance(mf.mo_energy, numpy.ndarray) and mf.mo_energy.ndim == 1:
-            log.debug1(' Current mo_energy(sorted) = %s', mo_energy)
-        else:
-            log.debug1(' Current alpha mo_energy(sorted) = %s', mo_energy[0])
-            log.debug1(' Current beta mo_energy(sorted) = %s', mo_energy[1])
+    #choose a subset of mo_coeff, which maximizes <old|now>
+    idx_a = numpy.argsort(numpy.einsum('ij,ij->j', s_a, s_a))[::-1]
+    idx_b = numpy.argsort(numpy.einsum('ij,ij->j', s_b, s_b))[::-1]
 
-        if (int(numpy.sum(mo_occ[0])) != nocc_a):
-            log.error('mom alpha electron occupation numbers do not match: %d, %d',
-                      nocc_a, int(numpy.sum(mo_occ[0])))
-        if (int(numpy.sum(mo_occ[1])) != nocc_b):
-            log.error('mom alpha electron occupation numbers do not match: %d, %d',
-                      nocc_b, int(numpy.sum(mo_occ[1])))
+    mo_occ[0][idx_a[:nocc_a]] = 1.
+    mo_occ[1][idx_b[:nocc_b]] = 1.
+    idx_occ_a = idx_a[0:nocc_a]
+    idx_occ_b = idx_b[0:nocc_b]
+    idx_vir_a = idx_a[nocc_a:nmoa]
+    idx_vir_b = idx_b[nocc_b:nmob]
 
-        #output 1-dimension occupation number for restricted open-shell
-        if isinstance(mf, rohf.ROHF): mo_occ = mo_occ[0, :] + mo_occ[1, :]
-        return mo_occ
-    mf.get_occ = get_occ
-    return mf
+    nvira = len(idx_vir_a)
+    nvirb = len(idx_vir_b)
+
+    mo_coeff_new = numpy.zeros_like(mo_coeff)
+    mo_coeff_new[0][:,:nocc_a]     = mo_coeff[0][:,idx_a[:nocc_a]]
+    mo_coeff_new[1][:,:nocc_b]     = mo_coeff[1][:,idx_b[:nocc_b]]
+    mo_coeff_new[0][:,nocc_a:nmoa] = mo_coeff[0][:,idx_vir_a[:nvira]]
+    mo_coeff_new[1][:,nocc_b:nmob] = mo_coeff[1][:,idx_vir_b[:nvirb]]
+
+    mo_energy_new = numpy.zeros_like(mo_energy)
+    mo_energy_new[0][:nocc_a]     = mo_energy[0][idx_a[:nocc_a]]
+    mo_energy_new[1][:nocc_b]     = mo_energy[1][idx_b[:nocc_b]]
+    mo_energy_new[0][nocc_a:nmoa] = mo_energy[0][idx_vir_a[:nvira]]
+    mo_energy_new[1][nocc_b:nmob] = mo_energy[1][idx_vir_b[:nvirb]]
+
+    return mo_coeff_new, mo_energy_new
+
 mom_occ = mom_occ_
-
 
 class UOBMP2(obmp2.OBMP2):
 
@@ -1195,18 +1139,14 @@ class UOBMP2(obmp2.OBMP2):
     get_frozen_mask = get_frozen_mask
     int_transform_ss = int_transform_ss
     int_transform_os = int_transform_os
-    mom_select = mom_select
-    mom_reorder = mom_reorder
+    mom_select = True
     break_sym = False
-    #use_t2 = False
-    cos = 1.
-    css = 1.
+
+    alpha = 1.
 
     @lib.with_doc(obmp2.OBMP2.kernel.__doc__)
-    def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kernel=kernel):
-        self.ene_tot, self.tmp1_bar = _kernel(self, mo_energy, mo_coeff, eris, with_t2)
-
-        return self.ene_tot, self.tmp1_bar
+    def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
+        return kernel(self, mo_energy, mo_coeff, eris, with_t2, kernel)
 
     def ao2mo(self, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -1219,7 +1159,8 @@ class UOBMP2(obmp2.OBMP2):
     eval_fc = False
     make_IPEA = make_IPEA
     eval_IPEA = False
-    ip = 0
+    mom_occ_ = mom_occ_
+    setocc = []
 
     def nuc_grad_method(self):
         from pyscf.grad import ump2
@@ -1241,7 +1182,7 @@ class _ChemistsERIs(obmp2._ChemistsERIs):
 
 def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     log = logger.new_logger(mp, verbose)
-    time0 = (time.process_time(), time.time())
+    time0 = (time.perf_counter(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
 
     nocca, noccb = mp.get_nocc()
@@ -1295,7 +1236,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     return eris
 
 def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
-    time0 = (time.process_time(), time.time())
+    time0 = (time.perf_counter(), time.time())
     log = logger.new_logger(mp, verbose)
     orboa = numpy.asarray(orbs[0], order='F')
     orbva = numpy.asarray(orbs[1], order='F')
@@ -1320,8 +1261,8 @@ def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
     dmax = max(x[2] for x in sh_ranges)
     eribuf = numpy.empty((nao,dmax,dmax,nao))
     ftmp = lib.H5TmpFile()
-    disk = (nocca**2.*(nao*(nao+dmax)/2+nvira**2) +
-            noccb**2.*(nao*(nao+dmax)/2+nvirb**2) +
+    disk = (nocca**2*(nao*(nao+dmax)/2+nvira**2) +
+            noccb**2*(nao*(nao+dmax)/2+nvirb**2) +
             nocca*noccb*(nao**2+nvira*nvirb))
     log.debug('max_memory %s MB (dmax = %s) required disk space %g MB',
               max_memory, dmax, disk*8/1e6)
@@ -1373,7 +1314,7 @@ def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
     fOVOV = feri.create_dataset('OVOV', (noccb*nvirb,noccb*nvirb), 'f8',
                                 chunks=(nvirb,nvirb))
     occblk = int(min(max(nocca,noccb),
-                     max(4, 250/nocca, max_memory*.9e6/8/(nao**2.*nocca)/5)))
+                     max(4, 250/nocca, max_memory*.9e6/8/(nao**2*nocca)/5)))
 
     def load_aa(h5g, nocc, i0, eri):
         if i0 < nocc:
