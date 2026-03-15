@@ -406,7 +406,7 @@ def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
 """
 def make_rdm1(mp): # , t2=None, eris=None, verbose=logger.NOTE, ao_repr=False):
     '''Spin-traced one-particle density matrix.
-    The occupied-virtual orbital response is not included.x
+    The occupied-virtual orbital response != included.x
 
     dm1[p,q] = <q_alpha^\dagger p_alpha> + <q_beta^\dagger p_beta>
 
@@ -696,7 +696,7 @@ def get_nocc(mp, per_kpoint=False):
                                "smearing of occupation numbers in the mean-field calculation. If so, consider "
                                "executing mf.smearing_method = False; mf.mo_occ = mf.get_occ() prior to calling "
                                "this".format(i, moocc))
-    if mp._nocc is not None:
+    if mp._nocc != None:
         return mp._nocc
     if isinstance(mp.frozen, (int, numpy.integer)):
         nocc = [(numpy.count_nonzero(mp.mo_occ[ikpt]) - mp.frozen) for ikpt in range(mp.nkpts)]
@@ -753,7 +753,7 @@ def get_nmo(mp, per_kpoint=False):
             `per_kpoint`.
 
     '''
-    if mp._nmo is not None:
+    if mp._nmo != None:
         return mp._nmo
 
     if isinstance(mp.frozen, (int, numpy.integer)):
@@ -799,7 +799,7 @@ def get_frozen_mask(mp):
         moidx (list of :obj:`ndarray` of `numpy.bool`): Boolean mask of orbitals to include.
 
     '''
-    moidx = [numpy.ones(x.size, dtype=numpy.bool) for x in mp.mo_occ]
+    moidx = [numpy.ones(x.size, dtype=bool) for x in mp.mo_occ]
     if isinstance(mp.frozen, (int, numpy.integer)):
         for idx in moidx:
             idx[:mp.frozen] = False
@@ -884,7 +884,7 @@ class OBMP2(lib.StreamObject):
         log.info('')
         log.info('******** %s ********', self.__class__)
         log.info('nocc = %s, nmo = %s', self.nocc, self.nmo)
-        if self.frozen is not 0:
+        if self.frozen != 0:
             log.info('frozen orbitals %s', self.frozen)
         log.info('max_memory %d MB (current use %d MB)',
                  self.max_memory, lib.current_memory()[0])
@@ -945,7 +945,7 @@ class OBMP2(lib.StreamObject):
     def density_fit(self, auxbasis=None, with_df=None):
         from pyscf.mp import dfmp2
         mymp = dfmp2.DFMP2(self._scf, self.frozen, self.mo_coeff, self.mo_occ)
-        if with_df is not None:
+        if with_df != None:
             mymp.with_df = with_df
         if mymp.with_df.auxbasis != auxbasis:
             mymp.with_df = copy.copy(mymp.with_df)
