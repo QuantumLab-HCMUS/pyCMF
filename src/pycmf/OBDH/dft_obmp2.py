@@ -745,7 +745,7 @@ def get_frozen_mask(mp):
     return moidx
 
 
-class B2PLYPDFOBMP2(obmp2_faster.OBMP2):
+class B2PLYPDFOBMP2(obmp2.OBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
 
         if mo_coeff  is None: mo_coeff  = mf.mo_coeff
@@ -1190,7 +1190,7 @@ if __name__ == '__main__':
     mppp.alpha= (0.53,0.1)
     dhf= mppp.run()
     ks = dft.RKS(mol, f"0.53*HF+ 0.47*B88,LYP").density_fit().run()
-    mpp=dfobmp2_faster_ram.DFOBMP2(mf).run()
+    mpp=dfobmp2.DFOBMP2(mf).run()
     mf = scf.RHF(mol).density_fit().run()
     mp22=dfmp2_native.DFMP2(mf).run()
     print('alpha=',mppp.alpha)

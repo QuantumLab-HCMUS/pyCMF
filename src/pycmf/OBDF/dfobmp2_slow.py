@@ -594,7 +594,7 @@ def get_frozen_mask(mp):
     return moidx
 
 
-class DFOBMP2(obmp2_faster.OBMP2):
+class DFOBMP2(obmp2.OBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
 
         if mo_coeff  is None: mo_coeff  = mf.mo_coeff

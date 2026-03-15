@@ -31,7 +31,7 @@ from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from pyscf.mp import mp2
 from pycmf.OBDF import dfobmp2
-from pycmf.OBMP import obmp2_slow as obmp2
+from pycmf.OBMP import obmp2_slow
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
@@ -1459,7 +1459,7 @@ def mom_occ_(mp, occorb, setocc):
 mom_occ = mom_occ_
 
 
-class UB2PLYPDFUOBMP2(dfobmp2_faster_ram.DFOBMP2):
+class UB2PLYPDFUOBMP2(dfobmp2.DFOBMP2):
     
 
     get_nocc = get_nocc
@@ -1478,7 +1478,7 @@ class UB2PLYPDFUOBMP2(dfobmp2_faster_ram.DFOBMP2):
     make_amp = make_amp
     
 
-    @lib.with_doc(obmp2.OBMP2.kernel.__doc__)
+    @lib.with_doc(obmp2_slow.OBMP2.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kernel=kernel):
 
         # self.ene_tot =_kernel(self, mo_energy, mo_coeff, eris, with_t2, alphaa)
@@ -1513,7 +1513,7 @@ OBMP2 = UB2PLYPDFUOBMP2
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2._ChemistsERIs):
+class _ChemistsERIs(obmp2_slow._ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff

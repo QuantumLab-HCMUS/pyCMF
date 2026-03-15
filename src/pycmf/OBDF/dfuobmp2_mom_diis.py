@@ -20,7 +20,7 @@ OB-MP2
 
 import time
 from functools import reduce
-import copy
+#import copy
 import numpy
 import scipy.linalg
 from pyscf import gto
@@ -29,15 +29,16 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pycmf.OBMP import obmp2_slow as obmp2
-from pycmf.OBDF import dfobmp2, dfobmp2_slow
-from pycmf.OBMP import uobmp2_mom_diis
-from pycmf.OBDF import dfuobmp2_einsum
-from pyscf.mp import mp2
+from pycmf.OBMP import obmp2_slow
+from pycmf.OBDF import dfobmp2_slow
+#from pycmf.OBDF import dfobmp2
+#from pycmf.OBMP import uobmp2_mom_diis
+#from pycmf.OBDF import dfuobmp2_einsum
+#from pyscf.mp import mp2
 
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
-from pyscf.tools import cubegen
+#from pyscf.tools import cubegen
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
@@ -1374,7 +1375,7 @@ def mom_occ_(mp, orb_init):
 
 mom_occ = mom_occ_
 
-class DFUOBMP2(dfobmp2_slower.DFOBMP2):
+class DFUOBMP2(dfobmp2_slow.DFOBMP2):
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -1388,7 +1389,7 @@ class DFUOBMP2(dfobmp2_slower.DFOBMP2):
 
     alpha = 1.
 
-    @lib.with_doc(obmp2.OBMP2.kernel.__doc__)
+    @lib.with_doc(obmp2_slow.OBMP2.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         return kernel(self, mo_energy, mo_coeff, eris, with_t2, kernel)
 
@@ -1424,7 +1425,7 @@ OBMP2 = DFUOBMP2
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2._ChemistsERIs):
+class _ChemistsERIs(obmp2_slow._ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff
