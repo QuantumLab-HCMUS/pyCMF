@@ -111,9 +111,8 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         if  mp.second_order:
             mp.ampf = 1.0
         #####################
-        ### BCH 1st order  
-        c0_1st, c1, IP, EA = first_BCH(mp, mo_energy, mo_coeff, fock_hf)
-        
+        ### OBMP2  
+        c0_1st, c1 = first_BCH(mp, mo_energy, mo_coeff, fock_hf)
         for k in range(nkpts):
             fock[k] += (c1[k] + c1[k].T.conj())
             
@@ -129,9 +128,6 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         print('e_corr = ',ene_tot - ene_hf)
         de = abs(ene_tot - ene_old)
         ene_old = ene_tot
-        #print("c1_1", c1[1])
-        #print("delta_fock", fock_hf[2]-fock_hf[1])
-        #print("c1_2", c1[2])
         tracemalloc.start(25)
         snapshot = tracemalloc.take_snapshot()
         top_stats = snapshot.statistics('lineno')
@@ -139,20 +135,11 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         total_mem = sum(stat.size for stat in top_stats)
         print()
         print('i/ter = %d'%it, ' ene = %8.8f'%ene_tot, ' ene diff = %8.8f'%de, flush=True)
-        #print("Total allocated size: %.3f Mb" % (total_mem / 1024**2))
         print()
-        #print("delta_fock_hf",fock_hf[2]-fock_hf[1])
         print()
         nk = 0
-        print("IP_v1 = ", IP[0] - mo_energy[nk][nocc-1] )
-        print("EA_c1 = ", EA[0] - mo_energy[nk][nocc])
-        print("IP_v2 = ", IP[1] - mo_energy[nk][nocc-2] )
-        print("EA_c2 = ", EA[1] - mo_energy[nk][nocc+1])
-        print("IP_v3 = ", IP[2] - mo_energy[nk][nocc-3] )
-        print("EA_c3 = ", EA[2] - mo_energy[nk][nocc+2])
         if de < mp.thresh:
             break
-
         ## diagonalizing correlated Fock 
         new_mo_coeff = numpy.empty_like(mo_coeff, dtype=complex)
         U = numpy.empty_like(mo_coeff)
@@ -168,7 +155,13 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
             #print("mo_energy")
             #print(mo_coeff[k])
             #mo_energy[k] = mp.mo_energy[k][sort_idx[k]].real
-      
+    IP, EA = make_IPEA(mp, mo_energy, mo_coeff, fock_hf)
+    print("IP_v1 = ", IP[0] - mo_energy[nk][nocc-1] )
+    print("EA_c1 = ", EA[0] - mo_energy[nk][nocc])
+    print("IP_v2 = ", IP[1] - mo_energy[nk][nocc-2] )
+    print("EA_c2 = ", EA[1] - mo_energy[nk][nocc+1])
+    print("IP_v3 = ", IP[2] - mo_energy[nk][nocc-3] )
+    print("EA_c3 = ", EA[2] - mo_energy[nk][nocc+2])  
     return ene_tot, mo_energy
 
 #################################################################################################################
@@ -268,31 +261,14 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
     '''
     tmp1 = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
     tmp1_bar = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    #tmp1_bar_iajh = numpy.zeros((nkpts,nkpts,nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    tmp1_bar_ialb = numpy.zeros((nkpts,nocc,nvir,nvir,nvir), dtype=complex)
-    #w_iajh =  numpy.zeros((nkpts,nkpts,nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    tmp1_bar_iajh = numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    w_iajh =  numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    tmp1_bar_ialb = numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
-    w_ialb =  numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
+    tmp_bar =  numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nvir), dtype=complex)
     h2mo_ovgg = numpy.zeros((nkpts,nocc,nvir,nmo,nmo), dtype=complex)
-    h2mo_gggg = numpy.zeros((nkpts,nmo,nmo,nmo,nmo), dtype=complex)
     h2mo_ovov = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
     h2mo_ovog = numpy.zeros((nkpts,nocc,nvir,nocc,nmo), dtype=complex)
     h2mo_ovgv = numpy.zeros((nkpts,nocc,nvir,nmo,nvir), dtype=complex)
-    #h2mo_ovoo = numpy.zeros((nkpts,nkpts,nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    h2mo_ovoo = numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    h2mo_ovvv = numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
-    h2mo_vooo =  numpy.zeros((nkpts,nvir,nocc,nocc,nocc), dtype=complex)
-    tmp1_bar_ahij = numpy.zeros((nkpts,nvir,nocc,nocc,nocc), dtype=complex)
-    w_ahij =  numpy.zeros((nkpts,nvir,nocc,nocc,nocc), dtype=complex)
-    h2mo_jbia =  numpy.zeros((nocc,nvir,nocc,nvir), dtype=complex)
-    h2mo_jaib =  numpy.zeros((nocc,nvir,nocc,nvir), dtype=complex)
     c1 = numpy.zeros((nkpts,nmo,nmo), dtype=complex)
     c2 = numpy.zeros((nkpts,nmo,nmo), dtype=complex)
     y1 = numpy.zeros((nkpts,nvir,nocc), dtype=complex)
-    #y1 = numpy.zeros((nkpts,nvir,nvir,nvir,nocc), dtype=complex)
-    #y1 = numpy.zeros((nkpts,nocc,nvir,nvir,nocc), dtype=complex)
     y2 = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
     y3 = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
     y4 = numpy.zeros((nkpts,nocc,nocc), dtype=complex)
@@ -322,7 +298,6 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
                 h2mo_ovov[ka] = h2mo_ovgg[ka][:,:,:nocc,nocc:]
                 h2mo_ovgv[ka] = h2mo_ovgg[ka][:,:,:,nocc:]
                 h2mo_ovog[ka] = h2mo_ovgg[ka][:,:,:nocc,:]
-                h2mo_ovvv[ka] = h2mo_ovgg[ka][:,:,nocc:,nocc:]
             for ka in range(nkpts):
                 kb = kconserv[ki,ka,kj]
                 e_iajb, e_ialb, e_iajh, e_ahij = ene_denom(mp, mo_energy, ki, ka, kj, kb)
@@ -340,30 +315,57 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
                     c1[kj,nocc:,:nocc] += 2*numpy.einsum('iajb, ia -> bj',tmp1_bar[ka],fock_hf[ka,:nocc,nocc:])
                 ### c0_1st
                 c0 -= 4*numpy.einsum('iajb, iajb',tmp1_bar[ka], h2mo_ovov[ka]).real
-                
                 ### 2nd order
                 if ki==ka:
-                    y1[kj] += 2*numpy.einsum('ia, iajb -> bj',fock_hf[ka][:nocc,nocc:], tmp1_bar[ka]) 
+                    y1[kj] += 2*numpy.einsum('ia, iajb -> bj',fock_hf[ka][:nocc,nocc:], tmp1_bar[ka])
+                    tmp_bar[ki,kj] = tmp1_bar[ka]
+                    print(ki,kj)
                 y2[ka] = numpy.einsum('ca, iclb -> ialb', fock_hf[ka,nocc:,nocc:], tmp1_bar[ka].conj())
                 y3[ka] = numpy.einsum('ik, kalb -> ialb', fock_hf[ki,:nocc,:nocc], tmp1_bar[ka].conj())
                 y4[ki,:,:] += numpy.einsum('iajb, kajb -> ki', tmp1[ka], tmp1_bar[ka].conj())
                 y5[ka,:,:] += numpy.einsum('iajb, icjb -> ac', tmp1[ka], tmp1_bar[ka].conj())
-                #if ki == ka:
-                #    c2[kj,:nocc,nocc:] += numpy.einsum('aabj, jbkc -> kc', y1[ka], tmp1_bar[ka].conj()) #[1]
+
                 c2[kj,:nocc,:nocc] += numpy.einsum('ialb, iajb -> lj', y2[ka], tmp1[ka]) #[2]
                 c2[ki,:nocc,:nocc] += numpy.einsum('kajb, iajb -> ki', y2[ka], tmp1[ka]) #[3]
                 c2[kb,nocc:,nocc:] -= numpy.einsum('iajd, iajb -> bd', y2[ka], tmp1[ka]) #[8]
-                
                 c2[kj,:nocc,:nocc] -= numpy.einsum('ialb, iajb -> lj', y3[ka], tmp1[ka]) #[4]
                 c2[ka,nocc:,nocc:] += numpy.einsum('icjb, iajb -> ac', y3[ka], tmp1[ka]) #[7]
-                c2[kb,nocc:,nocc:] += numpy.einsum('iajd, iajb -> bd', y3[ka], tmp1[ka]) #[6]
-                
+                c2[kb,nocc:,nocc:] += numpy.einsum('iajd, iajb -> bd', y3[ka], tmp1[ka]) #[6] 
                 c0 -= 4*numpy.einsum('iajb,iajb ->', y2[ka], tmp1[ka]).real #[11]
                 c0 += 4*numpy.einsum('iajb,iajb ->', y3[ka], tmp1[ka]).real #[10]
+
     for ki in range(nkpts):
         c2[ki,:nocc,:] -= numpy.einsum('ip, ki -> kp', fock_hf[ki,:nocc,:], y4[ki]) #[5]
         c2[ki,:,nocc:] -= numpy.einsum('pa, ac -> pc',fock_hf[ki,:,nocc:], y5[ki]) #[9]
+        c2[ki,:nocc,nocc:] += numpy.einsum('qbj, qjbkc -> kc', y1, tmp_bar[:,ki,:,:,:,:].conj()) #[1]
 
+    c0 /= nkpts
+    c1 += c2
+    return c0, c1
+
+def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
+    nmo = mp.nmo
+    nocc = mp.nocc
+    nvir = nmo - nocc
+    nkpts = mp.nkpts
+    kd = mp.kpts
+    kconserv = mp.khelper.kconserv
+    fao2mo = mp._scf.with_df.ao2mo
+   
+    IP_v1 = 0
+    IP_v2 = 0
+    IP_v3 = 0
+    EA_c1 = 0
+    EA_c2 = 0
+    EA_c3 = 0
+    nk = 0
+
+    tmp1_bar_iajh = numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
+    w_iajh =  numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
+    tmp1_bar_ialb = numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
+    w_ialb =  numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
+    h2mo_ovoo = numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
+    h2mo_ovvv = numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
 
     for ki in range(nkpts):
          for kj in range(nkpts):
@@ -381,16 +383,9 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
                      h2mo_ovvv[ki,ka] = fao2mo((o_i,o_a,o_j[:,nocc:],o_b[:,nocc:]),
                                 (mp.kpts[ki],mp.kpts[ka],mp.kpts[kj],mp.kpts[kb]),
                                 compact=False).reshape(nocc,nvir,nvir,nvir)/nkpts
-
-                 h2mo_ovov[ka] = fao2mo((o_i,o_a,o_j[:,:nocc],o_b[:,nocc:]),
-                                (mp.kpts[ki],mp.kpts[ka],mp.kpts[kj],mp.kpts[kb]),
-                                compact=False).reshape(nocc,nvir,nocc,nvir)/nkpts
              for ka in range(nkpts):
                  kb = kconserv[ki,ka,kj]
                  e_iajb, e_ialb, e_iajh, e_ahij = ene_denom(mp, mo_energy, ki, ka, kj, kb)
-                 if kj==kb:
-                     tmp1_bar[ka] = ((h2mo_ovov[ka]-0.5*h2mo_ovov[kb].transpose(0,3,2,1))/e_iajb).conj()
-                     c2[kj,:nocc,nocc:] += numpy.einsum('bj, jbkc -> kc', y1[ka], tmp1_bar[ka].conj()) #[1]
                  if kb==nk:
                      w_iajh[ki,ka] = h2mo_ovoo[ki,ka]-0.5*h2mo_ovoo[kj,ka].transpose(2,1,0,3)
                      tmp1_bar_iajh[ki,ka] =  (w_iajh[ki,ka]/e_iajh).conj()
@@ -403,16 +398,11 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
                      EA_c1 -=  2*numpy.einsum('iab, iab -> ',tmp1_bar_ialb[:,:,0,:],h2mo_ovvv[ki,ka][:,:,0,:]).real
                      EA_c2 -=  2*numpy.einsum('iab, iab -> ',tmp1_bar_ialb[:,:,1,:],h2mo_ovvv[ki,ka][:,:,1,:]).real
                      EA_c3 -=  2*numpy.einsum('iab, iab -> ',tmp1_bar_ialb[:,:,2,:],h2mo_ovvv[ki,ka][:,:,2,:]).real
-    c0 /= nkpts
-    c1 += c2
-    print("c0",c0)
+
     IP = [IP_v1,IP_v2,IP_v3]
     EA = [EA_c1,EA_c2,EA_c3]
 
-    print("IP", IP)
-    print("EA", EA)
-    return c0, c1, IP, EA
-
+    return IP, EA
 """
 def make_rdm1(mp): # , t2=None, eris=None, verbose=logger.NOTE, ao_repr=False):
     '''Spin-traced one-particle density matrix.
@@ -806,10 +796,10 @@ def get_frozen_mask(mp):
         mp (:class:`MP2`): An instantiation of an SCF or post-Hartree-Fock object.
 
     Returns:
-        moidx (list of :obj:`ndarray` of `bool`): Boolean mask of orbitals to include.
+        moidx (list of :obj:`ndarray` of `numpy.bool`): Boolean mask of orbitals to include.
 
     '''
-    moidx = [numpy.ones(x.size, dtype=bool) for x in mp.mo_occ]
+    moidx = [numpy.ones(x.size, dtype=numpy.bool) for x in mp.mo_occ]
     if isinstance(mp.frozen, (int, numpy.integer)):
         for idx in moidx:
             idx[:mp.frozen] = False
@@ -894,7 +884,7 @@ class OBMP2(lib.StreamObject):
         log.info('')
         log.info('******** %s ********', self.__class__)
         log.info('nocc = %s, nmo = %s', self.nocc, self.nmo)
-        if self.frozen != 0:
+        if self.frozen is not 0:
             log.info('frozen orbitals %s', self.frozen)
         log.info('max_memory %d MB (current use %d MB)',
                  self.max_memory, lib.current_memory()[0])
