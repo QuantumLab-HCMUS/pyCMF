@@ -1,5 +1,5 @@
 <div align="left">
-  <img src="assets/images/PyCMF-logo.png" height="80px" alt="PyCMF Logo"/>
+  <img src="assets/images/PyCMF-logo.jpg" height="90px" alt="PyCMF Logo"/>
 </div>
 
 # PyCMF
