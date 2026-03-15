@@ -1,4 +1,15 @@
+<div align="left">
+  <img src="https://github.com/QuantumLab-HCMUS/pyCMF/tree/master/assets/images/PyCMF-logo.png" height="80px"/>
+</div>
+
+# PyCMF
+
+PyCMF is a Python package including correlated mean-field methods for molecules and materials. It is built on top of the PySCF library.
+
+## Installation
+
 ### Step 1: Clone the Repository
+
 Download to your local machine
 
 ```bash

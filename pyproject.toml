@@ -22,6 +22,50 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/QuantumLab-HCMUS/pyCMF"
 
-# Ép buộc setuptools chỉ quét mã nguồn trong thư mục src/
+# Force setuptools to only scan source code in the src/ directory
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ==========================================
+# Configure Linter and Formatter (Replace ruff.toml, flake8, yapf)
+# ==========================================
+[tool.ruff]
+line-length = 120
+exclude = ["tests"] # Sửa thành 'tests' (có 's')
+
+[tool.ruff.lint]
+# Bỏ qua các lỗi về khoảng trắng và comment (Kế thừa từ pySCF)
+ignore = [
+    "E201", "E202", "E203", "E211", "E221", "E222", "E225", "E226", "E228", "E231", "E241", "E251",
+    "E261", "E262", "E265", "E266",
+    "E301", "E302", "E303", "E305", "E306",
+    "E401", "E402",
+    "E701", "E713", "E721", "E731", "E741", "E275",
+    "F401", "F403", "C901", "W391"
+]
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "auto"
+quote-style = "single"
+
+# ==========================================
+# Test Coverage Configuration (Replace coveragerc.txt)
+# ==========================================
+[tool.coverage.run]
+branch = true
+source = ["src/pycmf"] # Chỉ đo lường code bên trong thư mục lõi
+omit = [
+    "*/tests/*",     # Ignore the tests folder.
+    "*_slow.py",     
+    "*_old.py"      
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise RuntimeError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:"
+]
