@@ -1,5 +1,5 @@
 <div align="left">
-  <img src="https://github.com/QuantumLab-HCMUS/pyCMF/tree/master/assets/images/PyCMF-logo.png" height="80px"/>
+  <img src="assets/images/PyCMF-logo.png" height="80px" alt="PyCMF Logo"/>
 </div>
 
 # PyCMF
