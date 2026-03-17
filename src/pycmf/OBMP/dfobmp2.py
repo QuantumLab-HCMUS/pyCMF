@@ -28,7 +28,7 @@ from pyscf import lib
 from pyscf.lib import logger
 #from pyscf.mp import mp2, obmp2_faster
 from pyscf.mp import mp2
-from ..OBMP import obmp2
+from . import obmp2
 from pyscf import df
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo

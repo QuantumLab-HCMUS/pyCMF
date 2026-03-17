@@ -1,19 +1,12 @@
 # =========================================================================
 # File: src/pycmf/OBDF/__init__.py
-# Chức năng: Quản lý các thuật toán OBMP2 dùng Density Fitting giảm RAM
+# Chức năng: Quản lý các thuật toán Quantum Downfolding (Tạo Effective Hamiltonian)
 # =========================================================================
 
-# 1. Nhánh Restricted
-from .dfobmp2 import DFOBMP2
-from .dfobmp2_slow import DFOBMP2 as DFOBMP2_slow
-
-# 2. Nhánh Unrestricted
-from .dfuobmp2 import DFUOBMP2
-from .dfuobmp2_einsum import DFUOBMP2 as DFUOBMP2_einsum
-from .dfuobmp2_mom import DFUOBMP2 as DFUOBMP2_mom
-from .dfuobmp2_mom_diis import DFUOBMP2 as DFUOBMP2_mom_diis
+from .obmp2_downfold import OBMP2 as OBMP2_downfold
+from .uobmp2_downfold import UOBMP2 as UOBMP2_downfold
 
 __all__ = [
-    'DFOBMP2', 'DFOBMP2_slow',
-    'DFUOBMP2', 'DFUOBMP2_einsum', 'DFUOBMP2_mom', 'DFUOBMP2_mom_diis'
+    'OBMP2_downfold', 
+    'UOBMP2_downfold'
 ]

@@ -27,8 +27,8 @@ from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mp import mp2
-from ..OBMP import obmp2
-from ..OBDF import dfobmp2
+from pycmf.OBMP import obmp2
+from pycmf.OBMP import dfobmp2
 from pyscf import df
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo

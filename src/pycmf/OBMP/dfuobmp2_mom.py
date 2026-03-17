@@ -29,9 +29,8 @@ from pyscf.lib import logger
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
-from pyscf.mp import mp2
-from pycmf.OBMP import obmp2_slow
-from pycmf.OBDF import dfobmp2
+from pycmf.OBMP.obmp2 import OBMP2, _ChemistsERIs
+from .dfobmp2 import DFOBMP2 # Cần phải xem lại DFOBMP2
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
@@ -52,7 +51,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         mo_energy = mp.mo_energy
 
     log = logger.new_logger(mp, verbose)
-    t0 = (time.perf_counter(), time.time())
+    t0 = (time.process_time(), time.time())
 
     nuc = mp._scf.energy_nuc()
     ene_hf = mp._scf.energy_tot()
@@ -90,7 +89,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     for it in range(niter):
         
-        t0 = (time.perf_counter(), time.time())
+        t0 = (time.process_time(), time.time())
 
         h1ao = mp._scf.get_hcore(mp.mol)
         h1mo_a = numpy.matmul(mo_coeff[0].T,numpy.matmul(h1ao,mo_coeff[0]))
@@ -148,22 +147,22 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
         ####################
         #### MP1 amplitude
-        qov_a, qov_b = make_amp(mp) 
+        tmp1, tmp1_bar = make_amp(mp) 
         t1 = log.timer('making amplitude', *t0)
 
-        #tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba = tmp1
-        #tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
-        #if mp.second_order:
-        #    mp.ampf = 1.0
+        tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba = tmp1
+        tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
+        if mp.second_order:
+            mp.ampf = 1.0
 
-        #tmp1_bar_aa *= mp.ampf
-        #tmp1_bar_bb *= mp.ampf
-        #tmp1_bar_ab *= mp.ampf
-        #tmp1_bar_ba *= mp.ampf
+        tmp1_bar_aa *= mp.ampf
+        tmp1_bar_bb *= mp.ampf
+        tmp1_bar_ab *= mp.ampf
+        tmp1_bar_ba *= mp.ampf
 
         #####################
         ### BCH 1st order  
-        c0, c1_a, c1_b = first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0)
+        c0, c1_a, c1_b = first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0)
         t2 = log.timer('making first BCH', *t1)
         
         # symmetrize c1
@@ -173,7 +172,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         #####################
         ### BCH 2nd order  
         if mp.second_order:
-            c0, c1_a, c1_b = second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, qov_a, qov_b, c0)
+            c0, c1_a, c1_b = second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0)
             t3 = log.timer('making second BCH', *t2)
 
         # symmetrize c1
@@ -189,7 +188,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         ene_tot = ene + nuc
         de = abs(ene_tot - ene_old)
         ene_old = ene_tot
-        ss_ref, ss_res, ss_prj = make_S2(mp, qov_a, qov_b)
+        ss_ref, ss_res, ss_prj = make_S2(mp, tmp1_bar_ab)
         print()
         logger.info(mp, '========================')
         logger.info(mp, 'iter = %d  energy = %8.6f energy diff = %8.6f', it, ene_tot, de)
@@ -221,19 +220,16 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     print("DFUOB-MP2 energy = ", ene_tot)
 
+    return ene_tot
+
     ######################
 
-def make_S2(mp, qov_a, qov_b):
+def make_S2(mp, tmp1_bar_ab):
     mo_coeff = mp.mo_coeff
-    mo_energy = mp.mo_energy
     mo_occ   = mp._scf.mo_occ
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
     nvira, nvirb = nmoa-nocca, nmob-noccb
-    naux = mp.with_df.get_naoaux()
-    
-    eia_a = mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:]
-    eia_b = mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:]
 
     Sao = mp._scf.get_ovlp()
     ss_ref, s = mp._scf.spin_square((mo_coeff[0][:,mo_occ[0]>0],
@@ -242,22 +238,9 @@ def make_S2(mp, qov_a, qov_b):
     Sja_BA_ = numpy.matmul(mo_coeff[1].T, numpy.matmul(Sao, mo_coeff[0]))
     Sib_AB = Sib_AB_[:nocca,noccb:nmob]
     Sja_BA = Sja_BA_[:noccb,nocca:nmoa]
-    #tmp = lib.einsum("ja,iajb -> ib", Sja_BA, tmp1_bar_ab)
-    tmp = numpy.zeros((nocca,nvirb))
-    
-    for i in range(nocca):
-        Qov_a = qov_a[:,i*nvira:(i+1)*nvira]
-        buf_ab = numpy.dot(Qov_a.T,qov_b).reshape(nvira,noccb,nvirb)
-        gi_ab = numpy.array(buf_ab, copy=False)
-        gi_ab = gi_ab.reshape(nvira,noccb,nvirb).transpose(1,0,2)
-        t2i_ab = (gi_ab/lib.direct_sum('jb+a->jba', eia_b, eia_a[i])).transpose(1,0,2)
-        t2i_bar_ab = t2i_ab
-        tmp += lib.einsum("a,bia -> ib", Sja_BA[i,:], t2i_bar_ab)
-    
-    
+    tmp = lib.einsum("ja,iajb -> ib", Sja_BA, tmp1_bar_ab)
     ss_res = ss_ref - 0.5*numpy.sum(Sib_AB*tmp)
     ss_prj = ss_ref - 1.0*numpy.sum(Sib_AB*tmp)
-    
 
     return ss_ref, ss_res, ss_prj
 
@@ -299,46 +282,70 @@ def make_amp(mp):
     mo_energy = mp.mo_energy
     mo_coeff  = mp.mo_coeff
     
-    t0 = (time.perf_counter(), time.time())
+    t0 = (time.process_time(), time.time())
+
+    from pyscf.lib import current_memory
+
+    import tracemalloc
+    tracemalloc.start()
+
+    
 
     for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
         qov_a = qov_a
     for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
         qov_b = qov_b
     
+    print("qov_ab memory: %.1f MiB" % current_memory()[0])
+
+   
     t1 = log.timer('making amplitude: integral transform', *t0)
 
-    '''x_aa = numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(nocca,nvira,1,1))
+    x_aa = numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(nocca,nvira,1,1))
     x_aa += numpy.einsum('ijkl -> klij', x_aa) - mp.shift
     tmp1_aa = 1. *css* numpy.dot(qov_a.T,qov_a).reshape(nocca,nvira,nocca,nvira)/x_aa
+
+    del(x_aa)
 
     x_ab = numpy.einsum('ijkl -> klij',numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(noccb,nvirb,1,1)))
     x_ab += numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(nocca,nvira,1,1)) - mp.shift
     tmp1_ab = 1. *cos* numpy.dot(qov_a.T,qov_b).reshape(nocca,nvira,noccb,nvirb)/x_ab
 
+    del(x_ab)
+
     x_ba = numpy.einsum('ijkl -> klij',numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(nocca,nvira,1,1)))
     x_ba += numpy.tile(mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:],(noccb,nvirb,1,1)) - mp.shift
     tmp1_ba = 1. *cos* numpy.dot(qov_b.T,qov_a).reshape(noccb,nvirb,nocca,nvira)/x_ba
 
+    del(x_ba)
+    del(qov_a)
+
     x_bb = numpy.tile(mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:],(noccb,nvirb,1,1))
     x_bb += numpy.einsum('ijkl -> klij', x_bb) - mp.shift
     tmp1_bb = 1. *css* numpy.dot(qov_b.T,qov_b).reshape(noccb,nvirb,noccb,nvirb)/x_bb
+
+    del(x_bb)
+    del(qov_b)
     
+
     tmp1_bar_aa = tmp1_aa - numpy.transpose(tmp1_aa,(0,3,2,1))
     tmp1_bar_bb = tmp1_bb - numpy.transpose(tmp1_bb,(0,3,2,1))
     tmp1_bar_ab = tmp1_ab
     tmp1_bar_ba = tmp1_ba
 
+    print("t_mp1 memory: %.1f MiB" % current_memory()[0])
+    
     tmp1 = (tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba)
-    tmp1_bar = (tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba)'''
+    tmp1_bar = (tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba)
 
-    return qov_a, qov_b
+    return tmp1, tmp1_bar
 
 ############################################ 
-def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
+def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     
     log = logger.new_logger(mp, verbose=5)
 
+    tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
     nvira, nvirb = nmoa-nocca, nmob-noccb
@@ -346,11 +353,13 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
     mo_coeff  = mp.mo_coeff
     naux = mp.with_df.get_naoaux()
     
-    eia_a = mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:]
-    eia_b = mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:]
-    
-    t0 = (time.perf_counter(), time.time())
+    t0 = (time.process_time(), time.time())
 
+    from pyscf.lib import current_memory
+
+    import tracemalloc
+    tracemalloc.start()
+    
 
     ##########################################################
 
@@ -359,292 +368,224 @@ def first_BCH(mp, fock_hfa, fock_hfb, qov_a, qov_b, c0):
     c1_a = numpy.zeros((nmoa,nmoa), dtype=fock_hfa.dtype)
     c1_b = numpy.zeros((nmob,nmob), dtype=fock_hfb.dtype)
 
-    
+    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
+        qov_b = qov_b
+
     for istep, qgv_a in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[0], nocca)):
-        qgv_a = qgv_a
-    	
-    for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb)):
-        qgv_b = qgv_b
-    	
-    for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], nocca)):
-        qog_a = qog_a
-    	
-    for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], noccb)):
-        qog_b = qog_b
-    	
-    from pyscf.lib import current_memory
-    import tracemalloc
-    tracemalloc.start()
-    	
+        for i in range(nocca):
+            c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qgv_a.reshape(naux, nmoa, nvira)[:,:nocca,:nvira].reshape(naux, nocca*nvira)[:,i*nvira:(i+1)*nvira].T,qgv_a).reshape(nvira,nmoa,nvira),tmp1_bar_aa[i,:,:,:]) 
+        for i in range(noccb):
+            c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qgv_a).reshape(nvirb,nmoa,nvira),tmp1_bar_ba[i,:,:,:])
+    
+    print("qgv_a memory: %.1f MiB" % current_memory()[0])
+    del(qgv_a)
+    
+    
+    
+    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
+        for i in range(nocca):
+            c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T, qov_a).reshape(nvira, nocca, nvira), tmp1_bar_aa[i,:,:,:])
+    
     for i in range(nocca):
-        Qov_a = qov_a[:,i*nvira:(i+1)*nvira]
-        buf_aa = numpy.dot(Qov_a.T,qov_a).reshape(nvira,nocca,nvira)
-        gi_aa = numpy.array(buf_aa, copy=False)
-        gi_aa = gi_aa.reshape(nvira,nocca,nvira).transpose(1,0,2)
-        t2i_aa = (gi_aa/lib.direct_sum('jb+a->jba', eia_a, eia_a[i])).transpose(1,0,2)
-        t2i_bar_aa = t2i_aa - t2i_aa.T
-        
-        buf_ab = numpy.dot(Qov_a.T,qov_b).reshape(nvira,noccb,nvirb)
-        gi_ab = numpy.array(buf_ab, copy=False)
-        gi_ab = gi_ab.reshape(nvira,noccb,nvirb).transpose(1,0,2)
-        t2i_ab = (gi_ab/lib.direct_sum('jb+a->jba', eia_b, eia_a[i])).transpose(1,0,2)
-        t2i_bar_ab = t2i_ab
-        
-        c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(Qov_a.T,qgv_a).reshape(nvira,nmoa,nvira),t2i_bar_aa)
-        c0 -= 1.*lib.einsum("ajb, ajb -> ", buf_aa,t2i_bar_aa)
-        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(Qov_a.T, qov_b).reshape(nvira, noccb, nvirb), t2i_bar_ab)
-        c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(Qov_a.T,qgv_b).reshape(nvira,nmob,nvirb),t2i_bar_ab)
-        c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(Qov_a.T,qog_a).reshape(nvira,nocca, nmoa),t2i_bar_aa)
-        c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(Qov_a.T,qog_b).reshape(nvira,noccb, nmob),t2i_bar_ab)
-        c1_a[:nocca,nocca:] += 2.*lib.einsum('ajb,a -> jb',t2i_bar_aa,fock_hfa[i,nocca:])
-        c1_b[:noccb,noccb:] += 2.*lib.einsum('ajb,a -> jb',t2i_bar_ab,fock_hfa[i,nocca:]) 
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T, qov_b).reshape(nvira, noccb, nvirb), tmp1_bar_ab[i,:,:,:])
+    
+    print("qov memory: %.1f MiB" % current_memory()[0])
+    for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb)):
+        for i in range(noccb):
+            c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qgv_b.reshape(naux, nmob, nvirb)[:,:noccb,:nvirb].reshape(naux, noccb*nvirb)[:,i*nvirb:(i+1)*nvirb].T,qgv_b).reshape(nvirb,nmob,nvirb),tmp1_bar_bb[i,:,:,:]) 
+        for i in range(nocca):
+            c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qgv_b).reshape(nvira,nmob,nvirb),tmp1_bar_ab[i,:,:,:])  
+    print("qgv memory: %.1f MiB" % current_memory()[0])
+    del(qgv_b) 
+   
     
     for i in range(noccb):
-        Qov_b = qov_b[:,i*nvirb:(i+1)*nvirb]
-        buf_bb = numpy.dot(Qov_b.T,qov_b).reshape(nvirb,noccb,nvirb)
-        gi_bb = numpy.array(buf_bb, copy=False)
-        gi_bb = gi_bb.reshape(nvirb,noccb,nvirb).transpose(1,0,2)
-        t2i_bb = (gi_bb/lib.direct_sum('jb+a->jba', eia_b, eia_b[i])).transpose(1,0,2)
-        t2i_bar_bb = t2i_bb - t2i_bb.T
-        
-        buf_ba = numpy.dot(Qov_b.T,qov_a).reshape(nvirb,nocca,nvira)
-        gi_ba = numpy.array(buf_ba, copy=False)
-        gi_ba = gi_ba.reshape(nvirb,nocca,nvira).transpose(1,0,2)
-        t2i_ba = (gi_ba/lib.direct_sum('jb+a->jba', eia_a, eia_b[i])).transpose(1,0,2)
-        t2i_bar_ba = t2i_ba
-        
-        c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(Qov_b.T,qgv_a).reshape(nvirb,nmoa,nvira),t2i_ba)
-        c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(Qov_b.T,qgv_b).reshape(nvirb,nmob,nvirb),t2i_bar_bb)
-        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(Qov_b.T, qov_a).reshape(nvirb, nocca, nvira),t2i_ba)
-        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(Qov_b.T, qov_b).reshape(nvirb, noccb, nvirb), t2i_bar_bb)
-        c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(Qov_b.T,qog_a).reshape(nvirb,nocca, nmoa),t2i_ba)
-        c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(Qov_b.T,qog_b).reshape(nvirb,noccb, nmob),t2i_bar_bb)
-        c1_b[:noccb,noccb:] += 2.*lib.einsum('ajb,a -> jb',t2i_bar_bb,fock_hfb[i,noccb:])
-        c1_a[:nocca,nocca:] += 2.*lib.einsum('ajb,a -> jb',t2i_bar_ba,fock_hfb[i,noccb:])
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T, qov_a).reshape(nvirb, nocca, nvira), tmp1_bar_ba[i,:,:,:])
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T, qov_b).reshape(nvirb, noccb, nvirb), tmp1_bar_bb[i,:,:,:])
+
     
- 
+    for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], nocca)):
+        for i in range(nocca):
+            c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qog_a).reshape(nvira,nocca, nmoa),tmp1_bar_aa[i,:,:,:]) 
+        for i in range(noccb):
+            c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qog_a).reshape(nvirb,nocca, nmoa),tmp1_bar_ba[i,:,:,:])
+
+    del(qog_a)
+    
+    
+    
+    for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], noccb)):
+        for i in range(noccb):
+            c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qog_b).reshape(nvirb,noccb, nmob),tmp1_bar_bb[i,:,:,:]) 
+        for i in range(nocca):
+            c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qog_b).reshape(nvira,noccb, nmob),tmp1_bar_ab[i,:,:,:]) 
+    
+    del(qog_b)
+
+    print("qgv memory: %.1f MiB" % current_memory()[0])
+    '''#c0 -= 1.*numpy.sum(h2mo_aa_ovov*tmp1_bar_aa)
+    for i in range(nocca):
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T, qov_a).reshape(nvira, nocca, nvira), tmp1_bar_aa[i,:,:,:])
+    #c0 -= 1.*numpy.sum(h2mo_ab_ovov*tmp1_bar_ab)
+    for i in range(nocca):
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T, qov_b).reshape(nvira, noccb, nvirb), tmp1_bar_ab[i,:,:,:])
+    #c0 -= 1.*numpy.sum(h2mo_ba_ovov*tmp1_bar_ba)
+    for i in range(noccb):
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T, qov_a).reshape(nvirb, nocca, nvira), tmp1_bar_ba[i,:,:,:])
+    #c0 -= 1.*numpy.sum(h2mo_bb_ovov*tmp1_bar_bb)
+    for i in range(noccb):
+        c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T, qov_b).reshape(nvirb, noccb, nvirb), tmp1_bar_bb[i,:,:,:])'''
+
+    c1_a[:nocca,nocca:] += 2.*lib.einsum('ijkl,ij -> kl',tmp1_bar_aa,fock_hfa[:nocca,nocca:])
+    c1_a[:nocca,nocca:] += 2.*lib.einsum('ijkl,ij -> kl',tmp1_bar_ba,fock_hfb[:noccb,noccb:])
+
+    c1_b[:noccb,noccb:] += 2.*lib.einsum('ijkl,ij -> kl',tmp1_bar_bb,fock_hfb[:noccb,noccb:])
+    c1_b[:noccb,noccb:] += 2.*lib.einsum('ijkl,ij -> kl',tmp1_bar_ab,fock_hfa[:nocca,nocca:])
+
+
+
+    '''#c1_a[:,:nocca] += 2.*lib.einsum('ijpl,ijkl -> pk',h2mo_aa_ovgv,tmp1_bar_aa)
+    for i in range(nocca):
+        c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qgv_a).reshape(nvira,nmoa,nvira),tmp1_bar_aa[i,:,:,:]) 
+    #c1_a[:,:nocca] += 2.*lib.einsum('ijpl,ijkl -> pk',h2mo_ba_ovgv,tmp1_bar_ba) 
+    for i in range(noccb):
+        c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qgv_a).reshape(nvirb,nmoa,nvira),tmp1_bar_ba[i,:,:,:])
+
+    #c1_a[:,nocca:nmoa] -= 2.*lib.einsum('ijkp,ijkl -> pl',h2mo_aa_ovog,tmp1_bar_aa)
+    for i in range(nocca):
+        c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qog_a).reshape(nvira,nocca, nmoa),tmp1_bar_aa[i,:,:,:]) 
+    #c1_a[:,nocca:nmoa] -= 2.*lib.einsum('ijkp,ijkl -> pl',h2mo_ba_ovog,tmp1_bar_ba) 
+    for i in range(noccb):
+        c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qog_a).reshape(nvirb,nocca, nmoa),tmp1_bar_ba[i,:,:,:])
+
+
+    #c1_b[:,:noccb] += 2.*lib.einsum('ijpl,ijkl -> pk',h2mo_bb_ovgv,tmp1_bar_bb)
+    for i in range(noccb):
+        c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qgv_b).reshape(nvirb,nmob,nvirb),tmp1_bar_bb[i,:,:,:]) 
+    #c1_b[:,:noccb] += 2.*lib.einsum('ijpl,ijkl -> pk',h2mo_ab_ovgv,tmp1_bar_ab)
+    for i in range(nocca):
+        c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qgv_b).reshape(nvira,nmob,nvirb),tmp1_bar_ab[i,:,:,:])  
+
+    #c1_b[:,noccb:nmob] -= 2.*lib.einsum('ijkp,ijkl -> pl',h2mo_bb_ovog,tmp1_bar_bb)
+    for i in range(noccb):
+        c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qog_b).reshape(nvirb,noccb, nmob),tmp1_bar_bb[i,:,:,:]) 
+    #c1_b[:,noccb:nmob] -= 2.*lib.einsum('ijkp,ijkl -> pl',h2mo_ab_ovog,tmp1_bar_ab) 
+    for i in range(nocca):
+        c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qog_b).reshape(nvira,noccb, nmob),tmp1_bar_ab[i,:,:,:])''' 
+    
     print("1st memory: %.1f MiB" % current_memory()[0])
     return c0, c1_a, c1_b
 
 
-def second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, qov_a, qov_b, c0):
+def second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0):
 
-    #tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba = tmp1
-    #tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
+    tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba = tmp1
+    tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
 
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
     nvira, nvirb = nmoa-nocca, nmob-noccb
-    mo_energy = mp.mo_energy
-    mo_coeff  = mp.mo_coeff
-    naux = mp.with_df.get_naoaux()
-    
-    eia_a = mo_energy[0][:nocca,None] - mo_energy[0][None,nocca:]
-    eia_b = mo_energy[1][:noccb,None] - mo_energy[1][None,noccb:]
-    
-    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
-        qov_b = qov_b
-        
-    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
-        qov_a = qov_a
-
 
     c1_a = numpy.zeros((nmoa,nmoa), dtype=fock_hfa.dtype)
     c1_b = numpy.zeros((nmob,nmob), dtype=fock_hfb.dtype)
     
-    y1_a = numpy.zeros((nocca,nvira), dtype=fock_hfa.dtype)
-    y1_b = numpy.zeros((noccb,nvirb), dtype=fock_hfb.dtype)
+    #[1]
+    y1_a = lib.einsum('ij,ijkl -> kl', fock_hfa[:nocca,nocca:], tmp1_bar_aa)#
+    y1_a += lib.einsum('ij,ijkl -> kl', fock_hfb[:noccb,noccb:], tmp1_bar_ba)#
+    c1_a[:nocca,nocca:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_aa,y1_a)#
+    c1_b[:noccb,noccb:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_ba,y1_a)#
     
-    y5_a = numpy.zeros((nocca,nocca), dtype=fock_hfb.dtype)
-    y5_b = numpy.zeros((noccb,noccb), dtype=fock_hfb.dtype)
+    y1_b = lib.einsum('ij,ijkl -> kl', fock_hfb[:noccb,noccb:], tmp1_bar_bb)#
+    y1_b += lib.einsum('ij,ijkl -> kl', fock_hfa[:nocca,nocca:], tmp1_bar_ab)#
+    c1_a[:nocca,nocca:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_ab,y1_b)#
+    c1_b[:noccb,noccb:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_bb,y1_b)#
+
+    #[2]
+    y1_aa = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_aa)#
+    y1_ab = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_ab)#
+    y1_ba = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_ba)#
+    y1_bb = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_bb)#
+    c1_a[:nocca,:nocca] += lib.einsum('iajb,iakb -> jk', tmp1_aa, y1_aa)
+    c1_a[:nocca,:nocca] += lib.einsum('iajb,iakb -> jk', tmp1_ba, y1_ba)
+    c1_b[:noccb,:noccb] += lib.einsum('iajb,iakb -> jk', tmp1_bb, y1_bb)
+    c1_b[:noccb,:noccb] += lib.einsum('iajb,iakb -> jk', tmp1_ab, y1_ab)
     
-    y9_a = numpy.zeros((nvira,nvira), dtype=fock_hfb.dtype)
-    y9_b = numpy.zeros((nvirb,nvirb), dtype=fock_hfb.dtype)
+    c0 -= lib.einsum('ijkl,ijkl->', tmp1_aa,y1_aa) +\
+         lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
+    c0 -= lib.einsum('ijkl,ijkl->', tmp1_ab,y1_ab) +\
+         lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
+
+    #[3]
+    y1_aa = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_aa)#
+    y1_ab = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_ab)#
+    y1_ba = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_ba)#
+    y1_bb = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_bb)#
+    c1_a[:nocca,:nocca] += lib.einsum('iajb,kajb -> ik', tmp1_aa, y1_aa)
+    c1_a[:nocca,:nocca] += lib.einsum('iajb,kajb -> ik', tmp1_ab, y1_ab)
+    c1_b[:noccb,:noccb] += lib.einsum('iajb,kajb -> ik', tmp1_bb, y1_bb)
+    c1_b[:noccb,:noccb] += lib.einsum('iajb,kajb -> ik', tmp1_ba, y1_ba)
+                            
+    #[4]
+    y1_aa = lib.einsum('ik,kalb -> ialb',fock_hfa[:nocca,:nocca],tmp1_bar_aa)#
+    y1_ab = lib.einsum('ik,kalb -> ialb',fock_hfa[:nocca,:nocca],tmp1_bar_ab)#
+    y1_ba = lib.einsum('ik,kalb -> ialb',fock_hfb[:noccb,:noccb],tmp1_bar_ba)#
+    y1_bb = lib.einsum('ik,kalb -> ialb',fock_hfb[:noccb,:noccb],tmp1_bar_bb)#
+    c1_a[:nocca,:nocca] -= lib.einsum('iajb,ialb -> jl', tmp1_aa, y1_aa)
+    c1_a[:nocca,:nocca] -= lib.einsum('iajb,ialb -> jl', tmp1_ba, y1_ba)
+    c1_b[:noccb,:noccb] -= lib.einsum('iajb,ialb -> jl', tmp1_bb, y1_bb)
+    c1_b[:noccb,:noccb] -= lib.einsum('iajb,ialb -> jl', tmp1_ab, y1_ab)
     
+    c0 += lib.einsum('ijkl,ijkl->', tmp1_aa,y1_aa) +\
+         lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
+    c0 += lib.einsum('ijkl,ijkl->', tmp1_ab,y1_ab) +\
+         lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
+
+    #[5]
+    y1_a  = lib.einsum('iajb,kajb -> ik', tmp1_aa, tmp1_bar_aa)#
+    y1_a += lib.einsum('iajb,kajb -> ik', tmp1_ab, tmp1_bar_ab)#
+    c1_a[:,:nocca] -= lib.einsum('pk,ik -> pi', fock_hfa[:,:nocca], y1_a)
+
+    y1_b  = lib.einsum('iajb,kajb -> ik', tmp1_bb, tmp1_bar_bb)#
+    y1_b += lib.einsum('iajb,kajb -> ik', tmp1_ba, tmp1_bar_ba)#
+    c1_b[:,:noccb] -= lib.einsum('pk,ik -> pi', fock_hfb[:,:noccb], y1_b)
     
-    from pyscf.lib import current_memory
-    import tracemalloc
-    tracemalloc.start()
-    
-    for i in range(nocca):
-        Qov_a = qov_a[:,i*nvira:(i+1)*nvira]
-        buf_aa = numpy.dot(Qov_a.T,qov_a).reshape(nvira,nocca,nvira)
-        gi_aa = numpy.array(buf_aa, copy=False)
-        gi_aa = gi_aa.reshape(nvira,nocca,nvira).transpose(1,0,2)
-        t2i_aa = (gi_aa/lib.direct_sum('jb+a->jba', eia_a, eia_a[i])).transpose(1,0,2)
-        t2i_bar_aa = t2i_aa - t2i_aa.T
-        
-        buf_ab = numpy.dot(Qov_a.T,qov_b).reshape(nvira,noccb,nvirb)
-        gi_ab = numpy.array(buf_ab, copy=False)
-        gi_ab = gi_ab.reshape(nvira,noccb,nvirb).transpose(1,0,2)
-        t2i_ab = (gi_ab/lib.direct_sum('jb+a->jba', eia_b, eia_a[i])).transpose(1,0,2)
-        t2i_bar_ab = t2i_ab
-        #[1]
-        y1_a += lib.einsum('a,ajb -> jb', fock_hfa[i,nocca:], t2i_bar_aa)#
-        y1_b += lib.einsum('a,ajb -> jb', fock_hfa[i,nocca:], t2i_bar_ab)#
-        #[2]
-        y2_aa = lib.einsum('ac,cjb -> ajb',fock_hfa[nocca:,nocca:],t2i_bar_aa)#
-        c1_a[:nocca,:nocca] += lib.einsum('akb,ajb -> kj', t2i_aa, y2_aa)
-        y2_ab = lib.einsum('ac,cjb -> ajb',fock_hfa[nocca:,nocca:],t2i_bar_ab)#
-        c1_b[:noccb,:noccb] += lib.einsum('akb,ajb -> kj', t2i_ab, y2_ab)#
-        c0 -= lib.einsum('ajb,ajb->', t2i_aa,y2_aa)
-        c0 -= lib.einsum('ajb,ajb->', t2i_ab,y2_ab)
-        #[3]
-        y3_aa = lib.einsum('ac,bkc -> bka',fock_hfa[nocca:,nocca:],t2i_bar_aa)
-        c1_a[:nocca,:nocca] += lib.einsum('aib,akb -> ik', t2i_aa, y3_aa)
-        y3_ab = lib.einsum('ac,bkc -> bka',fock_hfb[noccb:,noccb:],t2i_bar_ab)#
-        c1_b[:noccb,:noccb] += lib.einsum('bia,bka -> ik', t2i_ab, y3_ab)
-        #[5]
-        y5_a += lib.einsum('bia,bka -> ik', t2i_aa, t2i_bar_aa)
-        y5_b += lib.einsum('bia,bka -> ik', t2i_ab, t2i_bar_ab)
-        #[6]
-        y6_aa = lib.einsum('ik,dka -> dia',fock_hfa[:nocca,:nocca],t2i_bar_aa)
-        c1_a[nocca:,nocca:] += lib.einsum('bia,dia -> bd', t2i_aa, y6_aa)
-        y6_ab = lib.einsum('ik,dka -> dia',fock_hfb[:noccb,:noccb],t2i_bar_ab)#
-        c1_a[nocca:,nocca:] += lib.einsum('bia,dia -> bd', t2i_ab, y6_ab)
-        #[7]
-        #y7_aa = lib.einsum('ik,bkc -> bic',fock_hfa[:nocca,:nocca],t2i_bar_aa)
-        y7_aa = y6_aa
-        c1_a[nocca:,nocca:] += lib.einsum('bia,bic -> ac', t2i_aa, y7_aa)
-        #y7_ab = lib.einsum('ik,bkc -> bic',fock_hfb[:noccb,:noccb],t2i_bar_ab)#
-        y7_ab = y6_ab
-        c1_b[noccb:,noccb:] += lib.einsum('bia,bic -> ac', t2i_ab, y7_ab)
-        #[8]
-        #y8_aa = lib.einsum('ac,cjd -> ajd',fock_hfa[nocca:,nocca:],t2i_bar_aa)#
-        y8_aa = y2_aa
-        c1_a[nocca:,nocca:] -= lib.einsum('ajb,ajd -> bd', t2i_aa, y8_aa)
-        #y8_ab = lib.einsum('ac,cjd -> ajd',fock_hfa[nocca:,nocca:],t2i_bar_ab)#
-        y8_ab = y2_ab
-        c1_b[noccb:,noccb:] -= lib.einsum('ajb,ajd -> bd', t2i_ab, y8_ab)
-        #[9]
-        y9_a += lib.einsum('ajb,cjb -> ac', t2i_aa, t2i_bar_aa)#
-        y9_a += lib.einsum('ajb,cjb -> ac', t2i_ab, t2i_bar_ab)#
-           
-        
-    for i in range(noccb):
-        Qov_b = qov_b[:,i*nvirb:(i+1)*nvirb]
-        buf_bb = numpy.dot(Qov_b.T,qov_b).reshape(nvirb,noccb,nvirb)
-        gi_bb = numpy.array(buf_bb, copy=False)
-        gi_bb = gi_bb.reshape(nvirb,noccb,nvirb).transpose(1,0,2)
-        t2i_bb = (gi_bb/lib.direct_sum('jb+a->jba', eia_b, eia_b[i])).transpose(1,0,2)
-        t2i_bar_bb = t2i_bb - t2i_bb.T
-        
-        buf_ba = numpy.dot(Qov_b.T,qov_a).reshape(nvirb,nocca,nvira)
-        gi_ba = numpy.array(buf_ba, copy=False)
-        gi_ba = gi_ba.reshape(nvirb,nocca,nvira).transpose(1,0,2)
-        t2i_ba = (gi_ba/lib.direct_sum('jb+a->jba', eia_a, eia_b[i])).transpose(1,0,2)
-        t2i_bar_ba = t2i_ba
-        #[1]
-        y1_a += lib.einsum('a,ajb -> jb', fock_hfb[i,noccb:], t2i_bar_ba)
-        y1_b += lib.einsum('a,ajb -> jb', fock_hfb[i,noccb:], t2i_bar_bb)#
-        #[2]
-        y2_bb = lib.einsum('ac,cjb -> ajb',fock_hfb[noccb:,noccb:],t2i_bar_bb)#
-        c1_b[:noccb,:noccb] += lib.einsum('akb,ajb -> kj', t2i_bb, y2_bb)
-        y2_ba = lib.einsum('ac,cjb -> ajb',fock_hfb[noccb:,noccb:],t2i_bar_ba)#
-        c1_a[:nocca,:nocca] += lib.einsum('akb,ajb -> kj', t2i_ba, y2_ba)
-        c0 -= lib.einsum('ajb,ajb->', t2i_bb,y2_bb)
-        c0 -= lib.einsum('ajb,ajb->', t2i_ba,y2_ba)
-        #[3]
-        y3_bb = lib.einsum('ac,bkc -> bka',fock_hfb[noccb:,noccb:],t2i_bar_bb)
-        c1_b[:noccb,:noccb] += lib.einsum('bia,bka -> ik', t2i_bb, y3_bb)
-        y3_ba = lib.einsum('ac,bkc -> bka',fock_hfa[nocca:,nocca:],t2i_bar_ba)
-        c1_a[:nocca,:nocca] += lib.einsum('aib,akb -> ik', t2i_ba, y3_ba)
-        #[5]
-        y5_b += lib.einsum('bia,bka -> ik', t2i_bb, t2i_bar_bb)
-        y5_a += lib.einsum('bia,bka -> ik', t2i_ba, t2i_bar_ba)
-        #[6]
-        y6_bb = lib.einsum('ik,dka -> dia',fock_hfb[:noccb,:noccb],t2i_bar_bb)
-        c1_b[noccb:,noccb:] += lib.einsum('bia,dia -> bd', t2i_bb, y6_bb)
-        y6_ba = lib.einsum('ik,dka -> dia',fock_hfa[:nocca,:nocca],t2i_bar_ba)#
-        c1_b[noccb:,noccb:] += lib.einsum('bia,dia -> bd', t2i_ba, y6_ba)
-        #[7]
-        #y7_bb = lib.einsum('ik,bkc -> bic',fock_hfb[:noccb,:noccb],t2i_bar_bb)
-        y7_bb = y6_bb
-        c1_b[noccb:,noccb:] += lib.einsum('bia,bic -> ac', t2i_bb, y7_bb)
-        #y7_ba = lib.einsum('ik,bkc -> bic',fock_hfa[:nocca,:nocca],t2i_bar_ba)
-        y7_ba = y6_ba
-        c1_a[nocca:,nocca:] += lib.einsum('bia,bic -> ac', t2i_ba, y7_ba)
-        #[8]
-        #y8_bb = lib.einsum('ac,cjd -> ajd',fock_hfb[noccb:,noccb:],t2i_bar_bb)#
-        y8_bb = y2_bb
-        c1_b[noccb:,noccb:] -= lib.einsum('ajb,ajd -> bd', t2i_bb, y8_bb)
-        #y8_ba = lib.einsum('ac,cjd -> ajd',fock_hfb[noccb:,noccb:],t2i_bar_ba)#
-        y8_ba = y2_ba
-        c1_a[nocca:,nocca:] -= lib.einsum('ajb,ajd -> bd', t2i_ba, y8_ba)
-        #[9]
-        y9_b += lib.einsum('ajb,cjb -> ac', t2i_bb, t2i_bar_bb)#
-        y9_b += lib.einsum('ajb,cjb -> ac', t2i_ba, t2i_bar_ba)#
-        
-        
-    Qov_a = qov_a.reshape(naux,nocca,nvira)[:,:,0]
-    for a in range(1,nvira):
-        Qov_a = numpy.concatenate((Qov_a,qov_a.reshape(naux,nocca,nvira)[:,:,a]), axis = 1)
-        
-    Qov_b = qov_b.reshape(naux,noccb,nvirb)[:,:,0]
-    for a in range(1,nvirb):
-        Qov_b = numpy.concatenate((Qov_b,qov_b.reshape(naux,noccb,nvirb)[:,:,a]), axis = 1)
-    
-    for a in range(nvira):
-        buf_aa = numpy.dot(qov_a.reshape(naux,nocca,nvira)[:,:,a].T,Qov_a).reshape(nocca,nvira,nocca)
-        ga_aa = numpy.array(buf_aa, copy=False)
-        ga_aa = ga_aa.reshape(nocca,nvira,nocca).transpose(1,0,2)
-        t2a_aa = ga_aa/lib.direct_sum('bj+i->bji', eia_a.T, eia_a.T[a])
-        
-        buf_ab = numpy.dot(qov_a.reshape(naux,nocca,nvira)[:,:,a].T,Qov_b).reshape(nocca,nvirb,noccb)
-        ga_ab = numpy.array(buf_ab, copy=False)
-        ga_ab = ga_ab.reshape(nocca,nvirb,noccb).transpose(1,0,2)
-        t2a_ab = ga_ab/lib.direct_sum('bj+i->bji', eia_b.T, eia_a.T[a])
-        #[4]
-        y4_aa = lib.einsum('ki,bji -> bjk',fock_hfa[:nocca,:nocca],t2a_aa)
-        c1_a[:nocca,:nocca] -= lib.einsum('bjk,blk -> jl', y4_aa, t2a_aa)
-        c1_a[:nocca,:nocca] += lib.einsum('bjk,bkl -> jl', y4_aa, t2a_aa)
-        y4_ab = lib.einsum('ki,bij -> bkj',fock_hfa[:nocca,:nocca],t2a_ab)#
-        c1_b[:noccb,:noccb] -= lib.einsum('bkj,bkl -> jl', y4_ab, t2a_ab)
-        c0 += lib.einsum('bji,bji->', t2a_aa,y4_aa) + lib.einsum('bkj,bkj->', t2a_ab,y4_ab)
-        c0 -= lib.einsum('bij,bji->', t2a_aa,y4_aa)
-        #[1]
-        c1_a[:nocca,nocca:] += lib.einsum('aji, j-> ia', t2a_aa,y1_a[:,a])#
-        c1_a[:nocca,nocca:] -= lib.einsum('aij, j-> ia', t2a_aa,y1_a[:,a])#
-        #c1_a[:nocca,nocca:] += lib.einsum('aij, j-> ia', t2a_ab,y1_b[:,a])#[1]
-        c1_b[:noccb,noccb:] += lib.einsum('aji,j -> ia', t2a_ab,y1_a[:,a])
-        
-    for a in range(nvirb):
-        buf_bb = numpy.dot(qov_b.reshape(naux,noccb,nvirb)[:,:,a].T,Qov_b).reshape(noccb,nvirb,noccb)
-        ga_bb = numpy.array(buf_bb, copy=False)
-        ga_bb = ga_bb.reshape(noccb,nvirb,noccb).transpose(1,0,2)
-        t2a_bb = ga_bb/lib.direct_sum('bj+i->bji', eia_b.T, eia_b.T[a])
-        
-        buf_ba = numpy.dot(qov_b.reshape(naux,noccb,nvirb)[:,:,a].T,Qov_a).reshape(noccb,nvira,nocca)
-        ga_ba = numpy.array(buf_ba, copy=False)
-        ga_ba = ga_ba.reshape(noccb,nvira,nocca).transpose(1,0,2)
-        t2a_ba = ga_ba/lib.direct_sum('bj+i->bji', eia_a.T, eia_b.T[a])
-        #[4]
-        y4_bb = lib.einsum('ki,bji -> bjk',fock_hfb[:noccb,:noccb],t2a_bb)#
-        c1_b[:noccb,:noccb] -= lib.einsum('bjk,blk -> jl', y4_bb, t2a_bb)
-        c1_b[:noccb,:noccb] += lib.einsum('bjk,bkl -> jl', y4_bb, t2a_bb)
-        y4_ba = lib.einsum('ki,bij -> bkj',fock_hfb[:noccb,:noccb],t2a_ba)#
-        c1_a[:nocca,:nocca] -= lib.einsum('bkj,bkl -> jl', y4_ba, t2a_ba)
-        #y1_bb = lib.einsum('ik,kalb -> ialb',fock_hfb[:noccb,:noccb],tmp1_bar_bb)#
-        c0 += lib.einsum('bji,bji->', t2a_bb,y4_bb) + lib.einsum('jkl,jkl->', t2a_ba,y4_ba)
-        c0 -= lib.einsum('bij,bji->', t2a_bb,y4_bb)
-        #[1]
-        
-        c1_b[:noccb,noccb:] += lib.einsum('aji,j -> ia', t2a_bb,y1_b[:,a])#
-        c1_b[:noccb,noccb:] -= lib.einsum('aij,j -> ia', t2a_bb,y1_b[:,a])#
-        c1_a[:nocca,nocca:] += lib.einsum('aji, j-> ia', t2a_ba,y1_b[:,a])#[1]
-        
-        
-        
-        
-            
-        
-    c1_a[:,:nocca] -= lib.einsum('pk,ik -> pi', fock_hfa[:,:nocca], y5_a)#[5]
-    c1_b[:,:noccb] -= lib.einsum('pk,ik -> pi', fock_hfb[:,:noccb], y5_b)#[5]
-    c1_a[:,nocca:] -= lib.einsum('pa,ac -> pc', fock_hfa[:,nocca:], y9_a)#[9]
-    c1_b[:,noccb:] -= lib.einsum('pa,ac -> pc', fock_hfb[:,noccb:], y9_b)#[9]
-    
-   
-    print("2nd memory: %.1f MiB" % current_memory()[0])
+    #[6]
+    y1_aa = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_aa)#
+    y1_ab = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_ab)#
+    y1_ba = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_ba)#
+    y1_bb = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_bb)#
+    c1_a[nocca:,nocca:] += lib.einsum('iajb,iajd -> bd', tmp1_aa, y1_aa)
+    c1_a[nocca:,nocca:] += lib.einsum('iajb,iajd -> bd', tmp1_ba, y1_ba)
+    c1_b[noccb:,noccb:] += lib.einsum('iajb,iajd -> bd', tmp1_bb, y1_bb)
+    c1_b[noccb:,noccb:] += lib.einsum('iajb,iajd -> bd', tmp1_ab, y1_ab)
+
+    #[7]
+    y1_aa = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_aa)#
+    y1_ab = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_ab)#
+    y1_ba = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_ba)#
+    y1_bb = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_bb)#
+    c1_a[nocca:,nocca:] += lib.einsum('iajb,icjb -> ac', tmp1_aa, y1_aa)
+    c1_a[nocca:,nocca:] += lib.einsum('iajb,icjb -> ac', tmp1_ab, y1_ab)
+    c1_b[noccb:,noccb:] += lib.einsum('iajb,icjb -> ac', tmp1_bb, y1_bb)
+    c1_b[noccb:,noccb:] += lib.einsum('iajb,icjb -> ac', tmp1_ba, y1_ba)
+
+    #[8]
+    y1_aa = lib.einsum('ac,icjd -> iajd',fock_hfa[nocca:,nocca:],tmp1_bar_aa)#
+    y1_ab = lib.einsum('ac,icjd -> iajd',fock_hfa[nocca:,nocca:],tmp1_bar_ab)#
+    y1_ba = lib.einsum('ac,icjd -> iajd',fock_hfb[noccb:,noccb:],tmp1_bar_ba)#
+    y1_bb = lib.einsum('ac,icjd -> iajd',fock_hfb[noccb:,noccb:],tmp1_bar_bb)#
+    c1_a[nocca:,nocca:] -= lib.einsum('iajb,iajd -> bd', tmp1_aa, y1_aa)
+    c1_a[nocca:,nocca:] -= lib.einsum('iajb,iajd -> bd', tmp1_ba, y1_ba)
+    c1_b[noccb:,noccb:] -= lib.einsum('iajb,iajd -> bd', tmp1_bb, y1_bb)
+    c1_b[noccb:,noccb:] -= lib.einsum('iajb,iajd -> bd', tmp1_ab, y1_ab)
+
+    #[9]
+    y1_a  = lib.einsum('iajb,icjb -> ac', tmp1_aa, tmp1_bar_aa)#
+    y1_a += lib.einsum('iajb,icjb -> ac', tmp1_ab, tmp1_bar_ab)#
+    c1_a[:,nocca:] -= lib.einsum('pa,ac -> pc', fock_hfa[:,nocca:], y1_a)
+    y1_b  = lib.einsum('iajb,icjb -> ac', tmp1_bb, tmp1_bar_bb)#
+    y1_b += lib.einsum('iajb,icjb -> ac', tmp1_ba, tmp1_bar_ba)#
+    c1_b[:,noccb:] -= lib.einsum('pa,ac -> pc', fock_hfb[:,noccb:], y1_b)
 
     return c0, c1_a, c1_b    
 
@@ -676,9 +617,6 @@ def make_IPEA(mp):
         
         x_a = mo_energy[0][:nocca,None,None] + mo_energy[0][None,None, :nocca] - mo_energy[0][None,nocca:,None] - mo_energy[0][None,h,None]  - mp.shift
         x_b = mo_energy[1][:noccb,None,None] + mo_energy[0][None,None, :nocca] - mo_energy[1][None,noccb:,None] - mo_energy[0][None,h,None]  - mp.shift
-        
-        print("x_a", x_a.shape)
-        print("x_b", x_b.shape)
 
         tmp1_aa = mp.css * numpy.einsum("Lia, Lj -> iaj", qov_a, qoo_a[:,:,h])
         tmp1_aa = tmp1_aa/x_a
@@ -1317,7 +1255,7 @@ def mom_occ_(mp, occorb, setocc):
 mom_occ = mom_occ_
 
 
-class DFUOBMP2(dfobmp2.DFOBMP2):
+class DFUOBMP2(DFOBMP2):
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -1333,9 +1271,11 @@ class DFUOBMP2(dfobmp2.DFOBMP2):
 
     
 
-    @lib.with_doc(obmp2_slow.OBMP2.kernel.__doc__)
-    def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
-        return kernel(self, mo_energy, mo_coeff, eris, with_t2, kernel)
+    @lib.with_doc(OBMP2.kernel.__doc__)
+    def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kernel=kernel):
+        self.ene_tot = kernel(self, mo_energy, mo_coeff, eris, with_t2)
+    
+        return self.ene_tot
 
     def ao2mo(self, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -1347,7 +1287,7 @@ class DFUOBMP2(dfobmp2.DFOBMP2):
     make_fc = make_fc
     eval_fc = False
     make_IPEA = make_IPEA
-    eval_IPEA = False
+    eval_IPEA = True
     ip = 0
 
     def nuc_grad_method(self):
@@ -1360,7 +1300,7 @@ OBMP2 = DFUOBMP2
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2_slow._ChemistsERIs):
+class _ChemistsERIs(_ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff
@@ -1370,7 +1310,7 @@ class _ChemistsERIs(obmp2_slow._ChemistsERIs):
 
 def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     log = logger.new_logger(mp, verbose)
-    time0 = (time.perf_counter(), time.time())
+    time0 = (time.process_time(), time.time())
     eris = _ChemistsERIs(mp, mo_coeff)
 
     nocca, noccb = mp.get_nocc()
@@ -1424,7 +1364,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     return eris
 
 def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
-    time0 = (time.perf_counter(), time.time())
+    time0 = (time.process_time(), time.time())
     log = logger.new_logger(mp, verbose)
     orboa = numpy.asarray(orbs[0], order='F')
     orbva = numpy.asarray(orbs[1], order='F')
@@ -1570,21 +1510,20 @@ if __name__ == '__main__':
     from pyscf import gto
     mol = gto.Mole()
     mol.atom = [
-        [6 , (0. , 0. , 0.6)],
-        [8 , (0. , 0.  , 0.)]]
+        [17 , (0. , -0.757 , 0.587)],
+        [17 , (0. , 0.757  , 0.587)]]
     
-    mol.spin = 0
+    mol.spin = 2
 
     mol.basis = 'ccpvdz'
     mol.build()
-    #mf = scf.UHF(mol).run()
-    mf = scf.UHF(mol).density_fit().run
+    mf = scf.UHF(mol).run()
+    #mf = scf.UHF(mol).density_fit().run
     mymp2 = DFUOBMP2(mf)
-    mymp2.second_order = True
     #mymp2.with_df = df.DF(mol)
     #mymp2.with_df.auxbasis = 'cc-pvdz-jkfit'
     #mymp2.run()
-    #mymp2.verbose = 5
+    mymp2.verbose = 5
     mymp2.run()
     #pt = OBMP2(mf)
     #emp2, t2 = pt.kernel()

@@ -30,7 +30,7 @@ from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from pyscf.mp import mp2
-from pycmf.OBDF import dfobmp2
+from pycmf.OBMP import dfobmp2
 from pycmf.OBMP import obmp2_slow
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
