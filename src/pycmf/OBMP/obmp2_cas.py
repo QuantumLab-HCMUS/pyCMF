@@ -268,7 +268,7 @@ def first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0):
 
     h2mo_ovov_act = ao2mo.general(mp._scf._eri, (co,cv,co,cv))
     h2mo_ovov_act = h2mo_ovov_act.reshape(nocc_act,nvir_act,nocc_act,nvir_act)
-    h2mo_ovov_act = h2mo_ovov_act[nocc_inact:, :nvir_act, nocc_inact:, :nvir_act]
+    #h2mo_ovov_act = h2mo_ovov_act[nocc_inact:, :nvir_act, nocc_inact:, :nvir_act]
     #h2mo_act = mp.h2mo[nocc_inact:nocc, nocc:nocc+nvir_act,\
     #            nocc_inact:nocc, nocc:nocc+nvir_act]
 
