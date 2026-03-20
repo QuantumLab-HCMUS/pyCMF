@@ -13,7 +13,7 @@ PyCMF is a Python package including correlated mean-field methods for molecules 
 Download to your local machine
 
 ```bash
-git clone https://github.com/Quantum-Lab-HCMUS/pyCMF.git
+git clone https://github.com/QuantumLab-HCMUS/pyCMF.git
 cd pyCMF
 
 ```
