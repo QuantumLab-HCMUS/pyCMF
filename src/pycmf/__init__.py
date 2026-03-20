@@ -37,7 +37,7 @@ from .OBDH import (
     DFTOBMP2 as _DFTOBMP2_class,
     DFTUOBMP2 as _DFTUOBMP2_class
 )
-from .KOBMP import KOBMP2 as _KOBMP2_class
+from .OBMP import KOBMP2 as _KOBMP2_class
 
 
 # =========================================================================

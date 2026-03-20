@@ -24,7 +24,10 @@ from .dfuobmp2_einsum import DFUOBMP2 as DFUOBMP2_einsum
 from .dfuobmp2_mom import DFUOBMP2 as DFUOBMP2_mom
 from .dfuobmp2_mom_diis import DFUOBMP2 as DFUOBMP2_mom_diis
 
+from .kobmp2 import OBMP2 as KOBMP2
+
 __all__ = [
+    'KOBMP2',
     'OBMP2', '_ChemistsERIs', 'OBMP2_slow', 'OBMP2_einsum', 'OBMP2_cas',
     'DFOBMP2', 'DFOBMP2_slow',
     'UOBMP2', 'UOBMP2_slow', 'UOBMP2_SCS', 'UOBMP2_mom', 'UOBMP2_mom_diis',
