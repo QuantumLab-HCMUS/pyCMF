@@ -78,12 +78,16 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         #####################
         ### Hartree-Fock
 
+        #print("h1mo:", h1mo)
         fock_hf = h1mo
         veff, c0_hf = make_veff(mp)
         fock_hf += veff
 
+        #print("fock_hf:", fock_hf)
+
         #initializing w/ HF
-        fock = fock_hf
+        fock = 0 #fix
+        fock += fock_hf
         c0 = c0_hf
 
         if  mp.second_order:
@@ -97,26 +101,39 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         ### BCH 1st order  
         c0, c1 = first_BCH(mp, fock_hf, tmp1, tmp1_bar, c0)
 
+        #print("1 c0, c1:", c0, c1)
         # symmetrize c1
         fock += 0.5 * (c1 + c1.T)
+        
+        #print("fock_hf MM", fock_hf)
 
         
         #####################
         ### BCH 2nd order  
         if mp.second_order:
-
+            
             c0, c1 = second_BCH(mp, fock_hf, tmp1, tmp1_bar, c0)
+            
+            #print("2 c0, c1:", c0, c1)
+            
             # symmetrize c1
             fock += 0.5 * (c1 + c1.T)
-
+#sua
+        c0_tot = 0
+        c0_tot += c0
+        
+        #print("fock f:\n", fock)
+        #print("nocc:", nocc)  
         ene = c0
         for i in range(nocc):
             ene += 2. * fock[i,i]
         
+        #print("ene:", ene)
+        
         ene_tot = ene + nuc
         de = abs(ene_tot - ene_old)
         ene_old = ene_tot
-        print('iter = %d'%it, ' energy = %8.6f'%ene_tot, ' energy diff = %8.6f'%de, flush=True)
+        #print('iter = %d'%it, ' energy = %8.6f'%ene_tot, ' energy diff = %8.6f'%de, flush=True)
 
         if de < mp.thresh:
             break
@@ -126,9 +143,13 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         mo_coeff = numpy.matmul(mp.mo_coeff, U)
         mp.mo_energy = mo_energy
         mp.mo_coeff  = mo_coeff
+#sua
+        #c0_tot = 1.0
+        #print("fock_hf ff: ", fock_hf)
 
+    return ene_tot - ene_hf, tmp1, h1mo_vqe, h2mo, fock_hf, ene_tot, tmp1_bar, fock, c0_tot, c1
+    
 
-    return ene_tot - ene_hf, tmp1, h1mo_vqe, h2mo, fock_hf
 
 #################################################################################################################
 
@@ -637,11 +658,11 @@ class OBMP2(lib.StreamObject):
         if self.verbose >= logger.WARN:
             self.check_sanity()
         self.dump_flags()
-
-        self.e_corr,self.tmp1, self.h1mo_vqe, self.h2mo, self.fock_hf = _kern(self, mo_energy, mo_coeff,
-                                     eris, with_t2, self.verbose)
+#sua
+        self.e_corr,self.tmp1, self.h1mo_vqe, self.h2mo, self.fock_hf, self.ene_tot, self.tmp1_bar, self.fock, self.c0_tot, self.c1 = _kern(self, mo_energy, mo_coeff, eris, with_t2, self.verbose)
         self._finalize()
-        return self.e_corr,self.tmp1, self.h1mo_vqe, self.h2mo, self.fock_hf
+#sua        
+        return self.e_corr,self.tmp1, self.h1mo_vqe, self.h2mo, self.fock_hf, self.ene_tot, self.tmp1_bar, self.fock, self.c0_tot, self.c1
 
     def _finalize(self):
         '''Hook for dumping results and clearing up the object.'''
