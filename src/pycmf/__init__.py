@@ -18,6 +18,7 @@ from .OBMP import (
     UOBMP2_SCS as _UOBMP2_SCS_class,
     UOBMP2_mom as _UOBMP2_mom_class,
     UOBMP2_mom_diis as _UOBMP2_mom_diis_class,
+    UHF_mom_diis as _UHF_mom_diis_class,
     UOBMP2_cas as _UOBMP2_cas_class,
     UOBMP2_cas_scf as _UOBMP2_cas_scf_class,
     DFUOBMP2 as _DFUOBMP2_class,
@@ -98,6 +99,10 @@ def UOBMP2_mom(mf, frozen=0, mo_coeff=None, mo_occ=None):
 def UOBMP2_mom_diis(mf, frozen=0, mo_coeff=None, mo_occ=None):
     if isinstance(mf, scf.uhf.UHF):
         return _UOBMP2_mom_diis_class(mf, frozen, mo_coeff, mo_occ)
+
+def UHF_mom_diis(mf, frozen=0, mo_coeff=None, mo_occ=None):
+    if isinstance(mf, scf.uhf.UHF):
+        return _UHF_mom_diis_class(mf, frozen, mo_coeff, mo_occ)
 
 def UOBMP2_cas(mf, nact, nocc_act, frozen=0, mo_coeff=None, mo_occ=None):
     if isinstance(mf, scf.uhf.UHF):

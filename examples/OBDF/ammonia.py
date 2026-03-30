@@ -1,5 +1,7 @@
-from pyscf import gto, scf, mcscf
-from mp import UOBMP2_faster, UOBMP2_downfold  
+from pyscf import gto, scf, mcscf, tools
+from pycmf.OBMP import UOBMP2
+from pycmf.OBDF import UOBMP2_downfold
+
 from pyscf import fci
 from pyscf.fci import direct_uhf, direct_spin1, spin_op
 import numpy as np
@@ -95,7 +97,7 @@ mycasci.fcisolver.nroots = n
 e_casci, _, ci_vecs_casci, _, _ = mycasci.kernel()
 
 # ===== 3. OBMP2 full-space =====
-uobmp = UOBMP2_faster(myuhf)
+uobmp = UOBMP2(myuhf)
 uobmp.second_order = True
 uobmp.kernel()
 

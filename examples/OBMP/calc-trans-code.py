@@ -4,7 +4,7 @@ import numpy as np
 import scipy.linalg
 from functools import reduce
 from pyscf import gto, scf, dft, mp, cc
-from pyscf.mp import dfuobmp2_mom_conv, uobmp2_mom_conv, hf_mom_conv
+from pycmf.OBMP import DFUOBMP2_mom_diis, UOBMP2_mom_diis, UHF_mom_diis
 from pyscf.tools import molden
 from pyscf.tools import cubegen
 
@@ -415,7 +415,7 @@ mo0_gs = hf_gs.mo_coeff
 occ_gs = hf_gs.mo_occ
 
 # OB-MP2 GS
-ob_gs = mp.uobmp2_mom_conv.UOBMP2(hf_gs)
+ob_gs = UOBMP2_mom_diis(hf_gs)
 ob_gs.second_order = True
 ob_gs.mom_select = True
 ob_gs.thresh = 1e-8
@@ -475,13 +475,13 @@ for hole, electron, label in transitions:
     scf_mom = scf.addons.mom_occ(scf_mom, mo0_es, occ_es)
     dm_init = scf_mom.make_rdm1(mo0_es, occ_es)
     scf_mom.scf(dm_init)
-    hf = mp.hf_mom_conv.UOBMP2(scf_mom).run()
+    hf = UHF_mom_diis(scf_mom).run()
 
     print(f"\n=== Excited states (MOM + OB-MP2) ===")
     print(f"\n--- Processing {label}: Hole {hole} -> Elec {electron} ---")
 
     # 3. OB-MP2
-    ob_es = mp.uobmp2_mom_conv.UOBMP2(scf_mom)
+    ob_es = UOBMP2_mom_diis(scf_mom)
     ob_es.second_order = True
     ob_es.mom_select = True
     ob_es.thresh = 1e-8

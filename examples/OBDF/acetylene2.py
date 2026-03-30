@@ -1,5 +1,6 @@
 from pyscf import gto, scf, mcscf, tools
-from mp import UOBMP2_faster, UOBMP2_downfold  
+from pycmf.OBMP import UOBMP2
+from pycmf.OBDF import UOBMP2_downfold
 
 from pyscf import fci
 
@@ -134,7 +135,7 @@ for i, ci in enumerate(mycasci.ci):
     m_casci.append(mult)
 
 # ===== 3. OBMP2 full-space =====
-uobmp = UOBMP2_faster(myuhf)
+uobmp = UOBMP2(myuhf)
 uobmp.second_order = True
 uobmp.kernel()
 

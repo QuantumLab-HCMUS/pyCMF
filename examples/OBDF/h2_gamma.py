@@ -2,8 +2,8 @@ import numpy as np
 from pyscf.pbc import gto, scf
 import pywannier90
 import copy
-import Khong_chinh_sua_kobmp2_nguyenban_0print as kobmp2
-import krobdf
+from pycmf.OBMP import kobmp2
+from pycmf.OBDF import krobdf
 from pyscf.pbc.lib import kpts_helper
 
 # ============================================================
@@ -35,7 +35,7 @@ kmf = scf.KRHF(cell, kpts).run()
 
 khf = copy.deepcopy(kmf)
 
-krobmp = kobmp2.OBMP2(khf)
+krobmp = kOBMP2_slow(khf)
 krobmp.second_order = True
 krobmp.kernel()
 

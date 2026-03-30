@@ -25,18 +25,18 @@ ekpt = kmf.run()
 
 
 #chay kOBMP2=========================================================================
-import Khong_chinh_sua_kobmp2_nguyenban_0print as kobmp2
+from pycmf.OBMP import kobmp2
 import copy
 
 khf = copy.deepcopy(kmf)
 
-krobmp = kobmp2.OBMP2(khf)
+krobmp = kOBMP2_slow(khf)
 krobmp.second_order = True
 krobmp.kernel()
 #====================================================================================
 
 # ===== downfold ====================================================================
-import krobdf
+from pycmf.OBDF import krobdf
 
 nocc_inact = [0, 0]
 nact = [2, 2] 
