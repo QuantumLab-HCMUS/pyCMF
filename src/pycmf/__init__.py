@@ -24,7 +24,8 @@ from .OBMP import (
     DFUOBMP2_einsum as _DFUOBMP2_einsum_class,
     DFUOBMP2_mom as _DFUOBMP2_mom_class,
     DFUOBMP2_mom_diis as _DFUOBMP2_mom_diis_class,
-    KOBMP2 as _KOBMP2_class
+    KOBMP2 as _KOBMP2_class,
+    KUOBMP2 as _KUOBMP2_class
 )
 
 # --- IMPORT TỪ OBDF (Quantum Downfolding) ---
@@ -147,3 +148,6 @@ def KOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):
 def KROBDF(mf, frozen=0, mo_coeff=None, mo_occ=None):
     # K-point Restricted OB-Downfolding (Effective Hamiltonian cho vật liệu)
     return _KROBDF_class(mf, frozen, mo_coeff, mo_occ)
+
+def KUOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):
+    return _KUOBMP2_class(mf, frozen, mo_coeff, mo_occ)
