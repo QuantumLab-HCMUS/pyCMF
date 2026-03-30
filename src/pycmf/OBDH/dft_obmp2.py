@@ -1161,7 +1161,7 @@ del(WITH_T2)
 
 def run_parallel(params):   
     object, alpha = params
-    if alpha != None:
+    if alpha is not None:
         object.alpha = alpha
     energy = object.run().e_tot
     

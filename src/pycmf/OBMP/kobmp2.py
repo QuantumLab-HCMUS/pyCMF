@@ -696,7 +696,7 @@ def get_nocc(mp, per_kpoint=False):
                                "smearing of occupation numbers in the mean-field calculation. If so, consider "
                                "executing mf.smearing_method = False; mf.mo_occ = mf.get_occ() prior to calling "
                                "this".format(i, moocc))
-    if mp._nocc != None:
+    if mp._nocc is not None:
         return mp._nocc
     if isinstance(mp.frozen, (int, numpy.integer)):
         nocc = [(numpy.count_nonzero(mp.mo_occ[ikpt]) - mp.frozen) for ikpt in range(mp.nkpts)]
@@ -753,7 +753,7 @@ def get_nmo(mp, per_kpoint=False):
             `per_kpoint`.
 
     '''
-    if mp._nmo != None:
+    if mp._nmo is not None:
         return mp._nmo
 
     if isinstance(mp.frozen, (int, numpy.integer)):
@@ -945,7 +945,7 @@ class OBMP2(lib.StreamObject):
     def density_fit(self, auxbasis=None, with_df=None):
         from pyscf.mp import dfmp2
         mymp = dfmp2.DFMP2(self._scf, self.frozen, self.mo_coeff, self.mo_occ)
-        if with_df != None:
+        if with_df is not None:
             mymp.with_df = with_df
         if mymp.with_df.auxbasis != auxbasis:
             mymp.with_df = copy.copy(mymp.with_df)

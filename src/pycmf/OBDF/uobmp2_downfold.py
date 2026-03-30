@@ -55,14 +55,23 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         #print("we are here")
         # For backward compatibility.  In pyscf-1.4 or earlier, mp.frozen is
         # not supported when mo_energy or mo_coeff is given.
-        #assert(mp.frozen == 0 or mp.frozen is None)
+        #assert(mp.frozen is 0 or mp.frozen is None)
         #print("we are here")
         mo_coeff_init  = mp.mo_coeff
         mo_coeff  = mp.mo_coeff
         mo_energy = mp.mo_energy
     #print("before")
     #print(mo_coeff[0])
-
+    
+    if getattr(mp, "restricted", False):
+        mo_coeff = [mo_coeff, mo_coeff]
+        mo_energy = numpy.array([mo_energy, mo_energy])
+        mp.mo_coeff = mo_coeff
+        mp.mo_energy = mo_energy
+        
+        #mp.tmp1 = [mp.tmp1, mp.tmp1, mp.tmp1, mp.tmp1]
+        #mp.tmp1_bar = [mp.tmp1_bar, mp.tmp1_bar, mp.tmp1_bar, mp.tmp1_bar]
+    
     if mp.mom:
         mo_coeff_init = mp.mom_reorder(mo_coeff_init)
         mo_coeff = mp.mom_reorder(mo_coeff)
@@ -76,70 +85,173 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
     #mo_coeff  = mp._scf.mo_coeff
     #mo_energy = mp._scf.mo_energy
     mo_occ    = mp._scf.mo_occ
+    
+    if getattr(mp, "restricted", False): 
+        mo_occ = numpy.array([mo_occ/2.0, mo_occ/2.0])
+        mp.mo_occ = mo_occ    
 
     nocca, noccb = mp.get_nocc()
     nocc = numpy.array(mp.get_nocc())
+    
     nmo = numpy.array(mp.get_nmo())
+    nmoa, nmob  = nmo 
 
     nact  = mp.nact     ## nact := array(nact_a, nact_b)
     nocc_act = mp.nocc_act
+        
     ncore = [nocc[0] - nocc_act[0]\
             ,nocc[1] - nocc_act[1]]
     nvir_act = [nact[0] - nocc_act[0]\
                 ,nact[1]- nocc_act[1]]
 
     mo_ea, mo_eb = mo_energy
-    eia_a = mo_ea[:nocca,None] - mo_ea[None,nocca:]
-    eia_b = mo_eb[:noccb,None] - mo_eb[None,noccb:]
 
     shift = mp.shift
     eri_ao = mp.mol.intor('int2e_sph')
 
+    if getattr(mp, "rotation", False):
+        
+        for i in range(10): 
+            
+            print("\nloop ", i)
+            mo_ea, mo_eb = mo_energy.copy()    
+            eps_occ_a = mo_ea[:nocca]; eps_vir_a = mo_ea[nocca:]
+            eps_occ_b = mo_eb[:noccb]; eps_vir_b = mo_eb[noccb:]
+            den_a = eps_occ_a[:,None] - eps_vir_a[None,:]
+            den_b = eps_occ_b[:,None] - eps_vir_b[None,:]    
+                    
+            # guard against tiny denominators
+            eps_guard = 1e-8
+            den_a_safe = numpy.where(numpy.abs(den_a) < eps_guard, numpy.sign(den_a+1e-16)*eps_guard, den_a)
+            den_b_safe = numpy.where(numpy.abs(den_b) < eps_guard, numpy.sign(den_b+1e-16)*eps_guard, den_b)
+        
+            # Block occupied�virtual cho alpha
+            f_ov_a = mp.fock_hf[0][:nocca, nocca:].copy()
+            f_ov_b = mp.fock_hf[1][:noccb, noccb:].copy()
+            
+            #print("=== Fock off-diagonal (alpha) ===")
+            #print(f_ov_a)
+            print("norm f_ov_a =", numpy.linalg.norm(f_ov_a))
+            
+            #print("=== Fock off-diagonal (beta) ===")
+            #print(f_ov_b)
+            print("norm f_ov_b =", numpy.linalg.norm(f_ov_b))
+        
+            t1_a = f_ov_a / den_a_safe
+            t1_b = f_ov_b / den_b_safe
+            #print("t1_a =\n", t1_a)
+            #print("t1_b =\n", t1_b)
+            print("norm t1_a =", numpy.linalg.norm(t1_a))
+            print("norm t1_b =", numpy.linalg.norm(t1_b))
+        
+        
+            kappa_a = numpy.zeros((nmoa, nmoa))
+            kappa_b = numpy.zeros((nmob, nmob))
+            kappa_a[:nocca, nocca:] = t1_a
+            kappa_a[nocca:, :nocca] = -t1_a.T
+            kappa_b[:noccb, noccb:] = t1_b
+            kappa_b[noccb:, :noccb] = -t1_b.T
+        
+            # decide damping automatically (suggested)
+            max_norm_suggest = 0.3
+            scale_a = 1.0
+            scale_b = 1.0
+            if numpy.linalg.norm(kappa_a) > max_norm_suggest:
+                scale_a = max_norm_suggest / numpy.linalg.norm(kappa_a)
+            if numpy.linalg.norm(kappa_b) > max_norm_suggest:
+                scale_b = max_norm_suggest / numpy.linalg.norm(kappa_b)
+            print("Suggested scales:", scale_a, scale_b)
+            
+            damp = 0.19         # additional global damping factor (tune 0.05..0.3)
+        
+            # apply both damping and automatic scaling
+            kappa_a_scaled = kappa_a * damp * scale_a
+            kappa_b_scaled = kappa_b * damp * scale_b
+            Ua = scipy.linalg.expm(kappa_a_scaled)
+            Ub = scipy.linalg.expm(kappa_b_scaled)
+        
+            mo_rot_a = mo_coeff[0] @ Ua
+            mo_rot_b = mo_coeff[1] @ Ub
+            
+            # update mo_coeff
+            mp.mo_coeff = [mo_rot_a, mo_rot_b]  
+            
+            # update fock
+            h1ao = mp._scf.get_hcore(mp.mol)
+            h1mo_a = numpy.matmul(mo_coeff[0].T,numpy.matmul(h1ao,mo_coeff[0]))
+            h1mo_b = numpy.matmul(mo_coeff[1].T,numpy.matmul(h1ao,mo_coeff[1]))
+    
+            fock_hfa = h1mo_a
+            fock_hfb = h1mo_b
+            
+            veffa, veffb, c0 = make_veff_full(mp)
+            
+            fock_hfa += veffa
+            fock_hfb += veffb
+            
+            mp.fock_hf = [0, 0]
+            mp.fock_hf[0] += fock_hfa
+            mp.fock_hf[1] += fock_hfb
+    
+            # update mo_energy
+            mo_energy[0] = numpy.diag(mp.fock_hf[0])
+            mo_energy[1] = numpy.diag(mp.fock_hf[1])
+                        
+            print(": Applied rotation: damp={}, scale_a={}, scale_b={}".format(damp, scale_a, scale_b))
+            
+            # recompute some diagnostics
+            kappa_norm_after = (numpy.linalg.norm(kappa_a_scaled), numpy.linalg.norm(kappa_b_scaled))
+            print("kappa norms after scaling:", numpy.array(kappa_norm_after), "\n")
+            
+            if numpy.all(kappa_norm_after) <0.01:
+                break
+    
+    # end of snippet
+     
     ########### ############ #############
     ######## h1mo & HF eff potential
-
     h1ao = mp._scf.get_hcore(mp.mol)
+    
     h1mo_act = [0,0]
     for sp in numpy.arange(2):
         h1mo = numpy.matmul(mp.mo_coeff[sp].T,numpy.matmul(h1ao,mp.mo_coeff[sp]))
         h1mo_act[sp] = h1mo[ncore[sp] : ncore[sp]+nact[sp]\
                     , ncore[sp] : ncore[sp]+nact[sp]]
     veff_core = uobmp2_cas.make_veff_core(mp)
+    
     h1mo_act[0] += veff_core[0]
     h1mo_act[1] += veff_core[1]
-
-    h1mo_vqe = [0, 0]
-    h1mo_vqe[0] += h1mo_act[0]
-    h1mo_vqe[1] += h1mo_act[1]
-
+#co the cat bot
+    h1mo_act_eff = [0, 0]
+    h1mo_act_eff[0] += h1mo_act[0]
+    h1mo_act_eff[1] += h1mo_act[1]
+    
     #####################
     ### Hartree-Fock
     #fock_hf = [0 ,0]
     #fock_hf[0] +=h1mo_act[0]
     #fock_hf[1] +=h1mo_act[1]
-
+    
+    if getattr(mp, "restricted", False): 
+        mp.fock_hf = [mp.fock_hf, mp.fock_hf]
+            
     fock_hf =[0,0]
     for sp in numpy.arange(2): 
         fock_hf[sp] = mp.fock_hf[sp][ncore[sp] : ncore[sp]+nact[sp]\
                     , ncore[sp] : ncore[sp]+nact[sp]]
-
+        
     veff, c0  = uobmp2_cas.make_veff(mp)
-
+     
     fock = [0, 0]
     fock[0] += fock_hf[0]
     fock[1] += fock_hf[1]
     c0 *= 0.5
+
     
     ####################
     #### MP1 amplitude
-    """
-    tmp1, tmp1_bar = make_amp(mp) 
-
-    tmp1_bar_act = [0, 0, 0, 0]
-    for ele in numpy.arange(4):
-        tmp1_bar_act[ele] += tmp1_bar[ele]
-    """
-    if mp.second_order:
+    #if mp.second_order:
+    if getattr(mp, "second_order", True):
         mp.ampf = 1.0
 
     tmp1_act = [0,0,0,0]
@@ -166,46 +278,48 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
 
     #####################
     ### BCH 1st order  
-    c0, c1_a, c1_b = uobmp2_cas.first_BCH(mp, fock_hf, tmp1_bar_act, c0)
-    # symmetrize c1
-    fock[0] += 0.5 * (c1_a + c1_a.T)
-    fock[1] += 0.5 * (c1_b + c1_b.T)   
+    if getattr(mp, "first_order", True):
+        c0, c1_a, c1_b = uobmp2_cas.first_BCH(mp, fock_hf, tmp1_bar_act, c0)
+        # symmetrize c1
+        fock[0] += 0.5 * (c1_a + c1_a.T)
+        fock[1] += 0.5 * (c1_b + c1_b.T)   
 
     #####################
-    ### External BCH 1st order  
-    #c1_a_ext, c1_b_ext = inter_first_BCH(mp, tmp1_bar)
-    c1_a_act, c1_b_act = inter_first_BCH(mp, tmp1_bar)
-    c1_a_ext = c1_a_act - c1_a
-    c1_b_ext = c1_b_act - c1_b
-    # symmetrize c1
-    h1mo_vqe[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
-    h1mo_vqe[1] += 0.5 * (c1_b_ext + c1_b_ext.T)  
-
-    fock[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
-    fock[1] += 0.5 * (c1_b_ext + c1_b_ext.T) 
+    ### External BCH 1st order
+    if getattr(mp, "first_order", True):  
+        #c1_a_ext, c1_b_ext = inter_first_BCH(mp, tmp1_bar)
+        c1_a_act, c1_b_act = inter_first_BCH(mp, tmp1_bar)
+        c1_a_ext = c1_a_act - c1_a
+        c1_b_ext = c1_b_act - c1_b
+        # symmetrize c1
+        h1mo_act_eff[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
+        h1mo_act_eff[1] += 0.5 * (c1_b_ext + c1_b_ext.T)  
     
+        fock[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
+        fock[1] += 0.5 * (c1_b_ext + c1_b_ext.T) 
     #####################
     ### BCH 2nd order 
-    if mp.second_order:
+    #if mp.second_order:
+    if getattr(mp, "second_order", True):
         c0, c1_a, c1_b = uobmp2_cas.second_BCH(mp, fock, fock_hf, tmp1_act, tmp1_bar_act, c0)
     # symmetrize c1
         fock[0] += 0.5 * (c1_a + c1_a.T)
         fock[1] += 0.5 * (c1_b + c1_b.T) 
-    
-    
+        
     #####################
     ### External BCH 2nd order  
-    if mp.second_order:
+    #if mp.second_order:
+    if getattr(mp, "second_order", True):
         c1_a_act, c1_b_act = inter_second_BCH(mp, tmp1, tmp1_bar)
         c1_a_ext = c1_a_act -c1_a
         c1_b_ext = c1_b_act - c1_b 
     # symmetrize c1
-        h1mo_vqe[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
-        h1mo_vqe[1] += 0.5 * (c1_b_ext + c1_b_ext.T) 
+        h1mo_act_eff[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
+        h1mo_act_eff[1] += 0.5 * (c1_b_ext + c1_b_ext.T) 
 
         fock[0] += 0.5 * (c1_a_ext + c1_a_ext.T)
         fock[1] += 0.5 * (c1_b_ext + c1_b_ext.T)  
-    
+
     ########### ############ #############
     ######## h1mo & h2mo output
 
@@ -225,13 +339,19 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
             h2mo_act[ele] = h2mo.reshape(nact[s1],nact[s1],nact[s2],nact[s2])
             ele +=1
 
-    
+    #sua
     ### Energy core + c0[core, ext]
     ##
     ene_hf_inact = ene_hf_core(mp)
+
     ene_ob_inact = ene_inact_1st(mp, tmp1_bar)
-    if mp.second_order:
+
+    #if mp.second_order:
+    if getattr(mp, "second_order", True):
         ene_ob_inact += ene_inact_2nd(mp, tmp1, tmp1_bar)
+
+    if getattr(mp, "restricted", False): 
+        mp.c1 = [mp.c1, mp.c1]
 
     ene_act = mp.c0_tot
     for i in range(nocc_act[0]):
@@ -245,32 +365,134 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
         for i in range(ncore[1]):
             ene_act += 1. * mp.c1[1][i,i]
     
-    c0_act = c0_act_1st_BCH(mp, tmp1_bar)
-    if mp.second_order:
+    c0_act = c0_act_1st_BCH(mp, tmp1_bar) #phai test thu cai nay
+    #if mp.second_order:
+    if getattr(mp, "second_order", True):
         c0_act = c0_act_2nd_BCH(mp, tmp1, tmp1_bar, c0_act)
+    
+    #test==============    
+    ene_act_eff = c0_act    
+    for i in range(nocc_act[0]):
+        ene_act_eff += 1. * fock[0][i,i]
+    for i in range(nocc_act[1]):
+        ene_act_eff += 1. * fock[1][i,i]
+               
+    '''
+    if ncore[0] != 0:
+        for i in range(ncore[0]):
+            ene_act_eff += 1. * mp.c1[0][i,i]
+        for i in range(ncore[1]):
+            ene_act_eff += 1. * mp.c1[1][i,i]
+    '''
+    #===================        
         
-    ### c0[core, vir]
+  
+   ### c0[core, vir]
     ## + c0[occ, ext]
     c0_ext = mp.c0_tot -c0_act
     ene_inact =  c0_ext + ene_ob_inact + ene_hf_inact
+    ene_inact_hf =  c0_ext + ene_hf_inact
+    
+    
     print('c0_ext = ',c0_ext)
     print('ene_inact = ',ene_inact)
+    
+    print('ene_ob_inact = ',ene_ob_inact)
 
-    print()
-    print("========================")
-    print(' energy active (eff)= %8.8f'%ene_act)
-    print()
+    print('ene_hf_inact = ',ene_hf_inact)
 
+    #print('ene_inact_hf = ',ene_inact_hf)
+
+    print(' energy active (+c0_ext)= %8.14f'%ene_act)
+    '''
     print("========================")
-    print(' energy active + outer = %8.8f'%(ene_act +ene_hf_inact))
+    print(' energy active + outer = %8.14f'%(ene_act +ene_hf_inact))
     print()
+    '''
+
+    #==========================================
+    print(' ene_act_eff= %8.14f'%ene_act_eff)
+
+    print(' energy total (ene_inact +ene_act_eff) = %8.14f'%(ene_inact +ene_act_eff))
+    
+
 
     
     ss, s = mp._scf.spin_square((mo_coeff[0][:,mo_occ[0]>0],
                                  mo_coeff[1][:,mo_occ[1]>0]), mp._scf.get_ovlp())
     print('multiplicity <S^2> = %.8g' %ss, '2S+1 = %.8g' %s)
     
-    return ene_act, ene_inact, ene_ob_inact, ene_hf_inact, h1mo_vqe, h2mo_act, tmp1_bar_act, tmp1
+    return ene_act_eff, ene_inact, ene_ob_inact, ene_hf_inact, h1mo_act_eff, h2mo_act, tmp1_bar_act, tmp1, ene_inact_hf
+
+def make_veff_full(mp):
+    nocca, noccb = mp.get_nocc()
+    nocc = [nocca, noccb]
+    nmoa, nmob = mp.get_nmo()
+    mo_coeff  = mp.mo_coeff
+
+    co_a = mo_coeff[0][:,:nocca]
+    cg_a = mo_coeff[0]
+    co_b= mo_coeff[1][:,:noccb]
+    cg_b = mo_coeff[1]
+
+    co = [mo_coeff[0][:,:nocc[0]],mo_coeff[1][:,:nocc[1]]]
+    
+    h2mo_oooo =[0,0,0,0]
+    ele = 0
+    for sp1 in numpy.arange(2):
+        for sp2 in numpy.arange(2):
+            h2mo_oooo[ele] = ao2mo.general(mp._scf._eri, 
+                        (co[sp1],co[sp1],co[sp2],co[sp2]), compact=False)
+            h2mo_oooo[ele] = h2mo_oooo[ele].reshape(
+                        nocc[sp1],nocc[sp1],nocc[sp2],nocc[sp2])
+            ele += 1
+
+    ############################# aa #############################
+    h2mo_aa_ggoo = ao2mo.general(mp._scf._eri, (cg_a,cg_a,co_a,co_a), compact=False)
+    h2mo_aa_ggoo = h2mo_aa_ggoo.reshape(nmoa,nmoa,nocca,nocca)
+    
+    h2mo_aa_goog = ao2mo.general(mp._scf._eri, (cg_a,co_a,co_a,cg_a))
+    h2mo_aa_goog = h2mo_aa_goog.reshape(nmoa,nocca,nocca,nmoa)
+
+    ############################# ab ba #############################
+    h2mo_ab_ggoo = ao2mo.general(mp._scf._eri, (cg_a,cg_a,co_b,co_b), compact=False)
+    h2mo_ab_ggoo = h2mo_ab_ggoo.reshape(nmoa,nmoa,noccb,noccb)
+    
+    h2mo_ba_ggoo = ao2mo.general(mp._scf._eri, (cg_b,cg_b,co_a,co_a), compact=False)
+    h2mo_ba_ggoo = h2mo_ba_ggoo.reshape(nmob,nmob,nocca,nocca)
+
+    ############################# bb #############################
+    h2mo_bb_ggoo = ao2mo.general(mp._scf._eri, (cg_b,cg_b,co_b,co_b), compact=False)
+    h2mo_bb_ggoo = h2mo_bb_ggoo.reshape(nmob,nmob,noccb,noccb)
+
+    h2mo_bb_goog = ao2mo.general(mp._scf._eri, (cg_b,co_b,co_b,cg_b))
+    h2mo_bb_goog = h2mo_bb_goog.reshape(nmob,noccb,noccb,nmob)
+
+    veffa = numpy.zeros((nmoa,nmoa))
+    veffb = numpy.zeros((nmob,nmob))
+    veffa += numpy.einsum('ijkk -> ij',h2mo_aa_ggoo) \
+                    - numpy.einsum('ijjk -> ik',h2mo_aa_goog) \
+                    + numpy.einsum('ijkk -> ij',h2mo_ab_ggoo)
+        
+    veffb += numpy.einsum('ijkk -> ij',h2mo_bb_ggoo) \
+                - numpy.einsum('ijjk -> ik',h2mo_bb_goog) \
+                + numpy.einsum('ijkk -> ij',h2mo_ba_ggoo)
+
+    c0 = 0.
+    for i in range(nocca):
+        for j in range(nocca):
+            c0 -= (h2mo_aa_ggoo[i,i,j,j]-h2mo_aa_ggoo[i,j,j,i])
+        for j in range(noccb):
+            c0 -= h2mo_ab_ggoo[i,i,j,j]
+    for i in range(noccb):
+        for j in range(noccb):
+            c0 -= (h2mo_bb_ggoo[i,i,j,j]-h2mo_bb_ggoo[i,j,j,i])
+        for j in range(nocca):
+            c0 -= h2mo_ba_ggoo[i,i,j,j]
+            
+    return veffa, veffb, c0
+
+
 
 def make_veff(mp):
 
@@ -1275,12 +1497,12 @@ class UOBMP2(uobmp2_cas.UOBMP2):
     
     @lib.with_doc(obmp2_cas.OBMP2.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kern=kernel):
-        self.ene_act, self.ene_inact, self.ene_ob_inact, self.ene_hf_inact, self.h1mo_vqe\
-            , self.h2mo_act, self.tmp1_bar_act, self.tmp1\
+        self.ene_act_eff, self.ene_inact, self.ene_ob_inact, self.ene_hf_inact, self.h1mo_act_eff\
+            , self.h2mo_act, self.tmp1_bar_act, self.tmp1, self.ene_inact_hf\
              =_kern(self, mo_energy, mo_coeff, eris, with_t2)
                                      
-        return self.ene_act, self.ene_inact, self.ene_ob_inact, self.ene_hf_inact, self.h1mo_vqe, self.h2mo_act\
-            , self.tmp1_bar_act, self.tmp1
+        return self.ene_act_eff, self.ene_inact, self.ene_ob_inact, self.ene_hf_inact, self.h1mo_act_eff, self.h2mo_act\
+            , self.tmp1_bar_act, self.tmp1, self.ene_inact_hf
         #kernel(self, mo_energy, mo_coeff, eris, with_t2, kernel)
 
     def ao2mo(self, mo_coeff=None):

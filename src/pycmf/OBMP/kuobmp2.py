@@ -1194,7 +1194,7 @@ def _frozen_sanity_check(frozen, mo_occ, kpt_idx):
 
 def get_nocc(mp, per_kpoint=False):
     '''Trả về số orbital bị chiếm (occupied) cho mỗi k-point (alpha và beta).'''
-    if mp._nocc != None:
+    if mp._nocc is not None:
         return mp._nocc
 
     mo_occ_a = mp.mo_occ[0]
@@ -1220,7 +1220,7 @@ def get_nocc(mp, per_kpoint=False):
             occidxb[frozen_list] = False
             noccb.append(numpy.count_nonzero(occidxb))
             
-    elif frozen == None:
+    elif frozen is None:
         for ikpt in range(nkpts):
             nocca.append(numpy.count_nonzero(mo_occ_a[ikpt] > 0))
             noccb.append(numpy.count_nonzero(mo_occ_b[ikpt] > 0))
@@ -1235,7 +1235,7 @@ def get_nocc(mp, per_kpoint=False):
 
 def get_nmo(mp, per_kpoint=False):
     '''Trả về số orbital (đã pad) (alpha và beta).'''
-    if mp._nmo != None:
+    if mp._nmo is not None:
         return mp._nmo
 
     mo_occ_a = mp.mo_occ[0]
@@ -1257,7 +1257,7 @@ def get_nmo(mp, per_kpoint=False):
             nmoa.append(len(mo_occ_a[ikpt]) - len(frozen_list))
             nmob.append(len(mo_occ_b[ikpt]) - len(frozen_list))
             
-    elif frozen == None:
+    elif frozen is None:
         for ikpt in range(nkpts):
             nmoa.append(len(mo_occ_a[ikpt]))
             nmob.append(len(mo_occ_b[ikpt]))
@@ -1292,7 +1292,7 @@ def get_frozen_mask(mp):
     moidxa = []
     moidxb = []
     
-    if frozen == None:
+    if frozen is None:
         for ikpt in range(nkpts):
             moidxa.append(numpy.ones(mo_occ_a[ikpt].size, dtype=bool))
             moidxb.append(numpy.ones(mo_occ_b[ikpt].size, dtype=bool))
@@ -1339,8 +1339,8 @@ def get_frozen_mask(mp):
 class OBMP2(lib.StreamObject):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
 
-        if mo_coeff  == None: mo_coeff  = mf.mo_coeff
-        if mo_occ    == None: mo_occ    = mf.mo_occ
+        if mo_coeff  is None: mo_coeff  = mf.mo_coeff
+        if mo_occ    is None: mo_occ    = mf.mo_occ
 
         self.thresh = 1e-06
         self.shift = 0.0
@@ -1427,13 +1427,13 @@ class OBMP2(lib.StreamObject):
             with_t2 : bool
                 Whether to generate and hold t2 amplitudes in memory.     
         '''
-        if mo_occ == None:
+        if mo_occ is None:
             mo_occ = self.mo_occ
-        if mo_energy == None:
+        if mo_energy is None:
             mo_energy = self.mo_energy
-        if mo_coeff == None:
+        if mo_coeff is None:
             mo_coeff = self.mo_coeff
-        if mo_energy == None or mo_coeff == None or mo_occ == None:
+        if mo_energy is None or mo_coeff is None or mo_occ is None:
             log = logger.Logger(self.stdout, self.verbose)
             log.warn('mo_coeff, mo_energy are not given.\n'
                      'You may need to call mf.kernel() to generate them.')
@@ -1469,7 +1469,7 @@ class OBMP2(lib.StreamObject):
     def density_fit(self, auxbasis=None, with_df=None):
         from pyscf.mp import dfmp2
         mymp = dfmp2.DFMP2(self._scf, self.frozen, self.mo_coeff, self.mo_occ)
-        if with_df != None:
+        if with_df is not None:
             mymp.with_df = with_df
         if mymp.with_df.auxbasis != auxbasis:
             mymp.with_df = copy.copy(mymp.with_df)

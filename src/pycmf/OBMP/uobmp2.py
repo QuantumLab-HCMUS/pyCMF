@@ -39,7 +39,7 @@ WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
 def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2,
            verbose=logger.NOTE):
-    if mp.mo_energy == None or mp.mo_coeff == None:
+    if mp.mo_energy is None or mp.mo_coeff is None:
         #if mo_energy is None or mo_coeff is None:
         #    raise RuntimeError('mo_coeff, mo_energy are not initialized.\n'
         #                       'You may need to call mf.kernel() to generate them.')
@@ -923,9 +923,9 @@ def int_transform_os(eri_ao, mo_coeff_s1, mo_coeff_s2):
 
 def get_nocc(mp):
     frozen = mp.frozen
-    if mp._nocc != None:
+    if mp._nocc is not None:
         return mp._nocc
-    elif frozen == None:
+    elif frozen is None:
         nocca = numpy.count_nonzero(mp.mo_occ[0] > 0)
         noccb = numpy.count_nonzero(mp.mo_occ[1] > 0)
     elif isinstance(frozen, (int, numpy.integer)):
@@ -948,9 +948,9 @@ def get_nocc(mp):
 
 def get_nmo(mp):
     frozen = mp.frozen
-    if mp._nmo != None:
+    if mp._nmo is not None:
         return mp._nmo
-    elif frozen == None:
+    elif frozen is None:
         nmoa = mp.mo_occ[0].size
         nmob = mp.mo_occ[1].size
     elif isinstance(frozen, (int, numpy.integer)):
@@ -976,10 +976,10 @@ def get_frozen_mask(mp):
     moidxb = numpy.ones(mp.mo_occ[1].size, dtype=bool)
 
     frozen = mp.frozen
-    if mp._nmo != None:
+    if mp._nmo is not None:
         moidxa[mp._nmo[0]:] = False
         moidxb[mp._nmo[1]:] = False
-    elif frozen == None:
+    elif frozen is None:
         pass
     elif isinstance(frozen, (int, numpy.integer)):
         moidxa[:frozen] = False
@@ -1011,7 +1011,7 @@ def mom_reorder(mp, mo_coeff):
     #print(mo_coeff_save[0][:,ia])
     mo_coeff[0][:,aa] = mo_coeff_save[0][:,ia]
     #mo_energy[0][aa]  = mo_energy_save[0][ia]
-    if (ib != None) and (ab != None):
+    if (ib is not None) and (ab is not None):
         mo_coeff[1][:,ib] = mo_coeff_save[1][:,ab]
         mo_coeff[1][:,ab] = mo_coeff_save[1][:,ib]
     #print("after")
@@ -1044,7 +1044,7 @@ def mom_select(mp, mo_coeff_init, mo_coeff_new):
     for j in range(nmoa):
         if Pa[j] == max_el:
             indxa = j
-    if (ib != None) and (ab != None):
+    if (ib is not None) and (ab is not None):
         Ob = numpy.matmul(mo_coeff_init[1][:,0:noccb].T,
                           numpy.matmul(ovi,mo_coeff_new[1][:,:]))
         Pb = []
@@ -1062,7 +1062,7 @@ def mom_select(mp, mo_coeff_init, mo_coeff_new):
         indxb = None
 
     print("indxa = %d"%indxa, "Pa = %8.6f"%Pa[indxa])
-    if indxb != None:
+    if indxb is not None:
         print("indxb = %d"%indxb, "Pb = %8.6f"%Pb[indxb])
     mp.vir_exc = [indxa, indxb]
     #mp.ib = indxb
@@ -1173,7 +1173,7 @@ def make_fc(mp, dm0, it=None, R_reslv=None, hfc_nuc=None, verbose=None):
     '''The contribution of Fermi-contact term and dipole-dipole interactions'''
     #log = logger.new_logger(hfcobj, verbose)
     mol = mp.mol
-    if hfc_nuc == None:
+    if hfc_nuc is None:
         hfc_nuc = range(mol.natm)
     if isinstance(dm0, numpy.ndarray) and dm0.ndim == 2: # RHF DM
         return numpy.zeros((3,3))
@@ -1282,7 +1282,7 @@ class UOBMP2(obmp2_slow.OBMP2):
         #kernel(self, mo_energy, mo_coeff, eris, with_t2, kernel)
 
     def ao2mo(self, mo_coeff=None):
-        if mo_coeff == None: mo_coeff = self.mo_coeff
+        if mo_coeff is None: mo_coeff = self.mo_coeff
         return _make_eris(self, mo_coeff, verbose=self.verbose)
 
     make_rdm1 = make_rdm1
@@ -1303,7 +1303,7 @@ OBMP2 = UOBMP2
 
 class _ChemistsERIs(obmp2_slow._ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
-        if mo_coeff == None:
+        if mo_coeff is None:
             mo_coeff = mp.mo_coeff
         moidx = mp.get_frozen_mask()
         self.mo_coeff = mo_coeff = \
@@ -1332,7 +1332,7 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     orbvb = mob[:,noccb:]
 
     if (mp.mol.incore_anyway or
-        (mp._scf._eri != None and mem_incore+mem_now < mp.max_memory)):
+        (mp._scf._eri is not None and mem_incore+mem_now < mp.max_memory)):
         log.debug('transform (ia|jb) incore')
         if callable(ao2mofn):
             eris.ovov = ao2mofn((orboa,orbva,orboa,orbva)).reshape(nocca*nvira,nocca*nvira)
