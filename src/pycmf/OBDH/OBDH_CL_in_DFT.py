@@ -30,8 +30,7 @@ from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from pyscf.mp import mp2
-from pycmf.OBMP import dfobmp2
-from pycmf.OBMP import obmp2_slow
+from pycmf.OBMP import DFOBMP2, OBMP2_slow, _ChemistsERIs
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
@@ -1522,7 +1521,7 @@ def make_rdm2(mp, t2=None):
         t2i = eris_ovov.conj()/lib.direct_sum('a+jb->jab', eia_a[i], eia_b)
         t2ab[i] = t2i
 
-    if not (mp.frozen is 0 or mp.frozen is None):
+    if not (mp.frozen == 0 or mp.frozen is None):
         nmoa0 = mp.mo_occ[0].size
         nmob0 = mp.mo_occ[1].size
         nocca0 = numpy.count_nonzero(mp.mo_occ[0] > 0)
@@ -1777,7 +1776,7 @@ def mom_occ_(mp, occorb, setocc):
 mom_occ = mom_occ_
 
 
-class UB2PLYPDFUOBMP2(dfobmp2.DFOBMP2):
+class UB2PLYPDFUOBMP2(DFOBMP2):
 
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
@@ -1799,7 +1798,7 @@ class UB2PLYPDFUOBMP2(dfobmp2.DFOBMP2):
     make_amp = make_amp
     
 
-    @lib.with_doc(obmp2_slow.OBMP2.kernel.__doc__)
+    @lib.with_doc(OBMP2_slow.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kernel=kernel):
 
         # self.ene_tot =_kernel(self, mo_energy, mo_coeff, eris, with_t2, alphaa)
@@ -1834,7 +1833,7 @@ OBMP2 = UB2PLYPDFUOBMP2
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2_slow._ChemistsERIs):
+class _ChemistsERIs(_ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff
