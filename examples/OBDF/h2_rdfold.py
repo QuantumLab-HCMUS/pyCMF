@@ -1,6 +1,7 @@
 from pyscf import gto, scf, mcscf
-from mp import UOBMP2_faster, UOBMP2_downfold, OBMP2_faster, obmp2_faster, ROBMP2_downfold
-
+#from mp import UOBMP2_faster, UOBMP2_downfold, OBMP2_faster, obmp2_faster, ROBMP2_downfold
+from pycmf.OBMP import OBMP2
+from pycmf.OBDF import OBMP2_downfold
 from pyscf import fci
 
 from pyscf.fci import direct_uhf, direct_spin1
@@ -53,7 +54,7 @@ myrhf.kernel()
 myuhf = scf.UHF(mol).run()
 
 # ===== 3. OBMP2 full-space =====
-robmp = OBMP2_faster(myrhf)
+robmp = OBMP2(myrhf)
 robmp.second_order = True
 robmp.kernel()
 
@@ -62,7 +63,7 @@ mycas = mcscf.CASCI(myrhf, ncas=nact[0], nelecas=sum(num_particles))
 mo_sorted = mcscf.sort_mo(mycas, robmp.mo_coeff, caslist_a)
 
 # ===== 5. Tạo đối tượng downfold =====
-robact = ROBMP2_downfold(myrhf, nact=nact[0], nocc_act=num_particles[0])
+robact = OBMP2_downfold(myrhf, nact=nact[0], nocc_act=num_particles[0])
 robact.mo_coeff = mo_sorted
 robact.mo_energy = robmp.mo_energy
 robact.c0_tot = getattr(robmp, "c0_tot", None)

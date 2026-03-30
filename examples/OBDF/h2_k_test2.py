@@ -30,7 +30,7 @@ import copy
 
 khf = copy.deepcopy(kmf)
 
-krobmp = kOBMP2_slow(khf)
+krobmp = kobmp2.OBMP2(khf)
 krobmp.second_order = True
 krobmp.kernel()
 #====================================================================================
