@@ -101,6 +101,7 @@ uobmp = UOBMP2(myuhf)
 uobmp.second_order = True
 uobmp.kernel()
 
+
 # ===== 4. Sort MO theo caslist =====
 mycas = mcscf.UCASCI(myuhf, ncas=nact[0], nelecas=sum(num_particles))
 mo_sorted = mcscf.sort_mo(mycas, uobmp.mo_coeff, caslist)
