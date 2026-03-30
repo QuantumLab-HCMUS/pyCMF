@@ -30,8 +30,8 @@ from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from pyscf.mp import mp2
-import dfobmp2_faster_ram
-import obmp2
+from pycmf.OBMP import dfobmp2
+from pycmf.OBMP import obmp2_slow
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
@@ -356,7 +356,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb,
     if use_cl:
         print(f"   [Embedded UOBMP2] Performing Concentric Localization "
               f"(n_shells={cl_n_shells}) to truncate virtual space...")
-        from CL_embed import concentric_localization
+        from .CL_embed import concentric_localization
         import scipy.linalg as la
 
         # Lấy danh sách AO indices từ atom_indices_A
@@ -1777,7 +1777,7 @@ def mom_occ_(mp, occorb, setocc):
 mom_occ = mom_occ_
 
 
-class UB2PLYPDFUOBMP2(dfobmp2_faster_ram.DFOBMP2):
+class UB2PLYPDFUOBMP2(dfobmp2.DFOBMP2):
 
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
@@ -1799,7 +1799,7 @@ class UB2PLYPDFUOBMP2(dfobmp2_faster_ram.DFOBMP2):
     make_amp = make_amp
     
 
-    @lib.with_doc(obmp2.OBMP2.kernel.__doc__)
+    @lib.with_doc(obmp2_slow.OBMP2.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kernel=kernel):
 
         # self.ene_tot =_kernel(self, mo_energy, mo_coeff, eris, with_t2, alphaa)
@@ -1834,7 +1834,7 @@ OBMP2 = UB2PLYPDFUOBMP2
 #scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2._ChemistsERIs):
+class _ChemistsERIs(obmp2_slow._ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff
@@ -2052,7 +2052,8 @@ if __name__ == '__main__':
     from pyscf import gto
     #from pyscf.mp import dfuobmp2_faster_ram , dfump2_native,ump2
     from pyscf.mp import dfump2_native,ump2
-    import dfuobmp2_faster_ram
+    from pycmf.OBMP import dfuobmp2
+
 
 
     mol = gto.Mole()
@@ -2081,6 +2082,7 @@ if __name__ == '__main__':
     # =========================================================================
     # BENCHMARK
     # =========================================================================
+    """
     from CL_benchmark import CLBenchmark
 
     bench = CLBenchmark(mppp, mol, mf)
@@ -2097,5 +2099,5 @@ if __name__ == '__main__':
     # Lưu CSV để phân tích thêm
     bench.save_csv('/home/bghuy1309/Result/CL_benchmark/cl_benchmark.csv')
     # =========================================================================
-
+    """
     
