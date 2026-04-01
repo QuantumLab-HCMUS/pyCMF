@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 # Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
 #
@@ -16,9 +15,9 @@
 # limitations under the License.
 
 
-'''
+"""
 Periodic OB-MP2
-'''
+"""
 
 import time, logging, tracemalloc
 from functools import reduce
@@ -36,21 +35,20 @@ WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 LARGE_DENOM = getattr(__config__, 'LARGE_DENOM', 1e14)
 
 
-def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
-           verbose=logger.NOTE):
-    
+def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2, verbose=logger.NOTE):
+
     nuc = mp._scf.energy_nuc()
     nmo = mp.nmo
     nkpts = numpy.shape(mo_energy)[0]
     nocc = mp.nocc
     niter = mp.niter
-    ene_old = 0.
-    #dm = mp._scf.make_rdm1(mo_coeff, mo_occ)
-    #print('===========dm========')
-    #print(dm)
+    ene_old = 0.0
+    # dm = mp._scf.make_rdm1(mo_coeff, mo_occ)
+    # print('===========dm========')
+    # print(dm)
     DIIS_RESID = [[] for _ in range(nkpts)]
     F_list = [[] for _ in range(nkpts)]
-    coeff =  [[] for _ in range(nkpts)]
+    coeff = [[] for _ in range(nkpts)]
     """
     h1ao = mp._scf.get_hcore()
     veffao = mp._scf.get_veff(mp._scf.cell, dm)
@@ -70,62 +68,59 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
     print()
     print('**********************************')
     print('************** OBMP2 *************')
-    #sort_idx = numpy.argsort(mo_energy)
-    f =  numpy.empty_like(mo_coeff)
+    # sort_idx = numpy.argsort(mo_energy)
+    f = numpy.empty_like(mo_coeff)
     for it in range(niter):
         dm = mp._scf.make_rdm1(mo_coeff, mo_occ)
-        #print("dm", dm)
+        # print("dm", dm)
         h1ao = mp._scf.get_hcore()
         veffao = mp._scf.get_veff(mp._scf.cell, dm)
         sort_idx = numpy.argsort(mo_energy)
 
-        
         #####################
         ### Hartree-Fock
-        veff= [reduce(numpy.dot, (mo.T.conj(), veffao[k], mo))
-                                for k, mo in enumerate(mo_coeff)]
-        
+        veff = [reduce(numpy.dot, (mo.T.conj(), veffao[k], mo)) for k, mo in enumerate(mo_coeff)]
+
         c0_hf = 0
         for kp in range(nkpts):
             for i in range(nocc):
-                c0_hf -=  veff[kp][i,i].real
-        c0_hf/= nkpts
+                c0_hf -= veff[kp][i, i].real
+        c0_hf /= nkpts
         fock_hf = numpy.zeros((nkpts, nmo, nmo), dtype=complex)
         fock_hf += veff
-        fock_hf += [reduce(numpy.dot, (mo.T.conj(), h1ao[k], mo))
-                                for k, mo in enumerate(mo_coeff)]
+        fock_hf += [reduce(numpy.dot, (mo.T.conj(), h1ao[k], mo)) for k, mo in enumerate(mo_coeff)]
         numpy.set_printoptions(precision=6)
 
-        #initializing w/ HF
+        # initializing w/ HF
         fock = 0
         fock += fock_hf
-        c0 = c0_hf 
+        c0 = c0_hf
 
         ene_hf = 0
         for k in range(nkpts):
             for i in range(nocc):
-                ene_hf += 2*fock[k][i,i].real/nkpts
+                ene_hf += 2 * fock[k][i, i].real / nkpts
 
-        ene_hf +=c0_hf + nuc
+        ene_hf += c0_hf + nuc
 
-        if  mp.second_order:
+        if mp.second_order:
             mp.ampf = 1.0
         #####################
-        ### OBMP2  
+        ### OBMP2
         c0_1st, c1 = first_BCH(mp, mo_energy, mo_coeff, fock_hf)
         for k in range(nkpts):
-            fock[k] += (c1[k] + c1[k].T.conj())
-            
+            fock[k] += c1[k] + c1[k].T.conj()
+
         #####################
         ene = 0
         ene0 = 0
-        
+
         for k in range(nkpts):
             for i in range(nocc):
-                ene += 2*fock[k][i,i].real/nkpts
-        ene_tot = ene + c0 + c0_1st + nuc #+ c0_2nd
-        #ene_tot = ene_hf
-        print('e_corr = ',ene_tot - ene_hf)
+                ene += 2 * fock[k][i, i].real / nkpts
+        ene_tot = ene + c0 + c0_1st + nuc  # + c0_2nd
+        # ene_tot = ene_hf
+        print('e_corr = ', ene_tot - ene_hf)
         de = abs(ene_tot - ene_old)
         ene_old = ene_tot
         tracemalloc.start(25)
@@ -134,35 +129,35 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2,
         stat = top_stats[:10]
         total_mem = sum(stat.size for stat in top_stats)
         print()
-        print('i/ter = %d'%it, ' ene = %8.8f'%ene_tot, ' ene diff = %8.8f'%de, flush=True)
+        print('i/ter = %d' % it, ' ene = %8.8f' % ene_tot, ' ene diff = %8.8f' % de, flush=True)
         print()
         print()
         nk = 0
         if de < mp.thresh:
             break
-        ## diagonalizing correlated Fock 
+        ## diagonalizing correlated Fock
         new_mo_coeff = numpy.empty_like(mo_coeff, dtype=complex)
         U = numpy.empty_like(mo_coeff)
         new_mo_energy = numpy.empty_like(mo_energy, dtype=complex)
         for k in range(nkpts):
-
             new_mo_energy[k], U = scipy.linalg.eigh(fock[k])
             new_mo_coeff[k] = numpy.dot(mo_coeff[k], U)
 
             mo_energy[k] = new_mo_energy[k].real
             mo_coeff[k] = new_mo_coeff[k]
             print()
-            #print("mo_energy")
-            #print(mo_coeff[k])
-            #mo_energy[k] = mp.mo_energy[k][sort_idx[k]].real
+            # print("mo_energy")
+            # print(mo_coeff[k])
+            # mo_energy[k] = mp.mo_energy[k][sort_idx[k]].real
     IP, EA = make_IPEA(mp, mo_energy, mo_coeff, fock_hf)
-    print("IP_v1 = ", IP[0] - mo_energy[nk][nocc-1] )
-    print("EA_c1 = ", EA[0] - mo_energy[nk][nocc])
-    print("IP_v2 = ", IP[1] - mo_energy[nk][nocc-2] )
-    print("EA_c2 = ", EA[1] - mo_energy[nk][nocc+1])
-    print("IP_v3 = ", IP[2] - mo_energy[nk][nocc-3] )
-    print("EA_c3 = ", EA[2] - mo_energy[nk][nocc+2])  
+    print('IP_v1 = ', IP[0] - mo_energy[nk][nocc - 1])
+    print('EA_c1 = ', EA[0] - mo_energy[nk][nocc])
+    print('IP_v2 = ', IP[1] - mo_energy[nk][nocc - 2])
+    print('EA_c2 = ', EA[1] - mo_energy[nk][nocc + 1])
+    print('IP_v3 = ', IP[2] - mo_energy[nk][nocc - 3])
+    print('EA_c3 = ', EA[2] - mo_energy[nk][nocc + 2])
     return ene_tot, mo_energy
+
 
 #################################################################################################################
 
@@ -177,18 +172,17 @@ def make_veff(mp, mo_coeff, mo_energy):
     dm = mp._scf.make_rdm1()
     veff_ao = mp._scf.get_veff(mp._scf.cell, dm)
 
+    veff = numpy.zeros((nkpts, nmo, nmo), dtype=complex)
 
-    veff = numpy.zeros((nkpts, nmo,nmo), dtype=complex)
-    
     for kp in range(nkpts):
-        veff[kp] = numpy.matmul(mo_coeff[kp].T.conj(),numpy.matmul(veff_ao[kp], mo_coeff[kp]))
-    
+        veff[kp] = numpy.matmul(mo_coeff[kp].T.conj(), numpy.matmul(veff_ao[kp], mo_coeff[kp]))
+
     c0_hf = 0
     for kp in range(nkpts):
         for i in range(nocc):
-            c0_hf -=  veff[kp][i,i].real
-    c0_hf/= nkpts
-    
+            c0_hf -= veff[kp][i, i].real
+    c0_hf /= nkpts
+
     return veff_ao, veff, c0_hf
 
 
@@ -198,33 +192,33 @@ def ene_denom(mp, mo_energy, ki, ka, kj, kb):
     nvir = nmo - nocc
     nkpts = numpy.shape(mo_energy)[0]
 
-    nonzero_opadding, nonzero_vpadding = padding_k_idx(mp, kind="split")
+    nonzero_opadding, nonzero_vpadding = padding_k_idx(mp, kind='split')
     mo_e_o = [mo_energy[k][:nocc] for k in range(nkpts)]
     mo_e_v = [mo_energy[k][nocc:] for k in range(nkpts)]
 
     eia = LARGE_DENOM * numpy.ones((nocc, nvir), dtype=mo_energy[0].dtype)
     n0_ovp_ia = numpy.ix_(nonzero_opadding[ki], nonzero_vpadding[ka])
-    eia[n0_ovp_ia] = (mo_e_o[ki][:,None] - mo_e_v[ka])[n0_ovp_ia]
+    eia[n0_ovp_ia] = (mo_e_o[ki][:, None] - mo_e_v[ka])[n0_ovp_ia]
 
     ejb = LARGE_DENOM * numpy.ones((nocc, nvir), dtype=mo_energy[0].dtype)
     n0_ovp_jb = numpy.ix_(nonzero_opadding[kj], nonzero_vpadding[kb])
-    ejb[n0_ovp_jb] = (mo_e_o[kj][:,None] - mo_e_v[kb])[n0_ovp_jb]
-    
+    ejb[n0_ovp_jb] = (mo_e_o[kj][:, None] - mo_e_v[kb])[n0_ovp_jb]
+
     ejh = LARGE_DENOM * numpy.ones((nocc, nocc), dtype=mo_energy[0].dtype)
     n0_ovp_jh = numpy.ix_(nonzero_opadding[kj], nonzero_opadding[kb])
-    ejh[n0_ovp_jh] = (mo_e_o[kj][:,None] - mo_e_o[kb])[n0_ovp_jh]
+    ejh[n0_ovp_jh] = (mo_e_o[kj][:, None] - mo_e_o[kb])[n0_ovp_jh]
 
     eah = LARGE_DENOM * numpy.ones((nvir, nocc), dtype=mo_energy[0].dtype)
     n0_ovp_ah = numpy.ix_(nonzero_opadding[ka], nonzero_opadding[kb])
-    eah[n0_ovp_ah] = (mo_e_v[ka][:,None] - mo_e_o[kb])[n0_ovp_ah]
-   
+    eah[n0_ovp_ah] = (mo_e_v[ka][:, None] - mo_e_o[kb])[n0_ovp_ah]
+
     eij = LARGE_DENOM * numpy.ones((nocc, nocc), dtype=mo_energy[0].dtype)
     n0_ovp_ij = numpy.ix_(nonzero_opadding[ki], nonzero_opadding[kj])
-    eij[n0_ovp_ij] = (mo_e_o[ki][:,None] - mo_e_o[kj])[n0_ovp_ij]
+    eij[n0_ovp_ij] = (mo_e_o[ki][:, None] - mo_e_o[kj])[n0_ovp_ij]
 
     elb = LARGE_DENOM * numpy.ones((nvir, nvir), dtype=mo_energy[0].dtype)
     n0_ovp_lb = numpy.ix_(nonzero_vpadding[kj], nonzero_vpadding[kb])
-    elb[n0_ovp_lb] = (mo_e_v[kj][:,None] - mo_e_v[kb])[n0_ovp_lb]
+    elb[n0_ovp_lb] = (mo_e_v[kj][:, None] - mo_e_v[kb])[n0_ovp_lb]
 
     e_iajb = lib.direct_sum('ia,jb -> iajb', eia, ejb)
     e_ialb = lib.direct_sum('ia,lb -> ialb', eia, elb)
@@ -232,6 +226,7 @@ def ene_denom(mp, mo_energy, ki, ka, kj, kb):
     e_ahij = lib.direct_sum('ah,ij -> ahij', eah, eij)
 
     return e_iajb, e_ialb, e_iajh, e_ahij
+
 
 def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
     nmo = mp.nmo
@@ -243,11 +238,11 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
     fao2mo = mp._scf.with_df.ao2mo
     kd = kpts.KPoints(mp._scf.cell, mp.kpts)
     kd.build(space_group_symmetry=True)
-    k1 =[1]
-    k2 = [2] 
-    ovlp=mp._scf.get_ovlp()
+    k1 = [1]
+    k2 = [2]
+    ovlp = mp._scf.get_ovlp()
 
-    '''
+    """
     kijab, weight, k4_bz2ibz = kd.make_k4_ibz(sym='s2')
     _, igroup = numpy.unique(kijab[:,:2], axis=0, return_index=True)
     igroup = igroup.ravel()
@@ -258,21 +253,21 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
     print("kijab",kijab)
     print("igroup", igroup)
     print("k4_bz2ibz", k4_bz2ibz)
-    '''
-    tmp1 = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    tmp1_bar = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    tmp_bar =  numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    h2mo_ovgg = numpy.zeros((nkpts,nocc,nvir,nmo,nmo), dtype=complex)
-    h2mo_ovov = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    h2mo_ovog = numpy.zeros((nkpts,nocc,nvir,nocc,nmo), dtype=complex)
-    h2mo_ovgv = numpy.zeros((nkpts,nocc,nvir,nmo,nvir), dtype=complex)
-    c1 = numpy.zeros((nkpts,nmo,nmo), dtype=complex)
-    c2 = numpy.zeros((nkpts,nmo,nmo), dtype=complex)
-    y1 = numpy.zeros((nkpts,nvir,nocc), dtype=complex)
-    y2 = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    y3 = numpy.zeros((nkpts,nocc,nvir,nocc,nvir), dtype=complex)
-    y4 = numpy.zeros((nkpts,nocc,nocc), dtype=complex)
-    y5 = numpy.zeros((nkpts,nvir,nvir), dtype=complex)
+    """
+    tmp1 = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    tmp1_bar = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    tmp_bar = numpy.zeros((nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    h2mo_ovgg = numpy.zeros((nkpts, nocc, nvir, nmo, nmo), dtype=complex)
+    h2mo_ovov = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    h2mo_ovog = numpy.zeros((nkpts, nocc, nvir, nocc, nmo), dtype=complex)
+    h2mo_ovgv = numpy.zeros((nkpts, nocc, nvir, nmo, nvir), dtype=complex)
+    c1 = numpy.zeros((nkpts, nmo, nmo), dtype=complex)
+    c2 = numpy.zeros((nkpts, nmo, nmo), dtype=complex)
+    y1 = numpy.zeros((nkpts, nvir, nocc), dtype=complex)
+    y2 = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    y3 = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    y4 = numpy.zeros((nkpts, nocc, nocc), dtype=complex)
+    y5 = numpy.zeros((nkpts, nvir, nvir), dtype=complex)
     c0 = 0
     IP_v1 = 0
     IP_v2 = 0
@@ -280,68 +275,72 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
     EA_c1 = 0
     EA_c2 = 0
     EA_c3 = 0
-    print("mo energy",  mo_energy)
+    print('mo energy', mo_energy)
     nk = 0
     for ki in range(nkpts):
         for kj in range(nkpts):
             for ka in range(nkpts):
-                kb = kconserv[ki,ka,kj]
+                kb = kconserv[ki, ka, kj]
                 kp = kj
                 kq = kb
-                o_i = mo_coeff[ki][:,:nocc]
-                o_a = mo_coeff[ka][:,nocc:]
+                o_i = mo_coeff[ki][:, :nocc]
+                o_a = mo_coeff[ka][:, nocc:]
                 o_p = mo_coeff[kp]
                 o_q = mo_coeff[kq]
-                h2mo_ovgg[ka] = fao2mo((o_i,o_a,o_p,o_q),
-                                (mp.kpts[ki],mp.kpts[ka],mp.kpts[kp],mp.kpts[kq]),
-                                compact=False).reshape(nocc,nvir,nmo,nmo)/nkpts
-                h2mo_ovov[ka] = h2mo_ovgg[ka][:,:,:nocc,nocc:]
-                h2mo_ovgv[ka] = h2mo_ovgg[ka][:,:,:,nocc:]
-                h2mo_ovog[ka] = h2mo_ovgg[ka][:,:,:nocc,:]
+                h2mo_ovgg[ka] = (
+                    fao2mo(
+                        (o_i, o_a, o_p, o_q), (mp.kpts[ki], mp.kpts[ka], mp.kpts[kp], mp.kpts[kq]), compact=False
+                    ).reshape(nocc, nvir, nmo, nmo)
+                    / nkpts
+                )
+                h2mo_ovov[ka] = h2mo_ovgg[ka][:, :, :nocc, nocc:]
+                h2mo_ovgv[ka] = h2mo_ovgg[ka][:, :, :, nocc:]
+                h2mo_ovog[ka] = h2mo_ovgg[ka][:, :, :nocc, :]
             for ka in range(nkpts):
-                kb = kconserv[ki,ka,kj]
+                kb = kconserv[ki, ka, kj]
                 e_iajb, e_ialb, e_iajh, e_ahij = ene_denom(mp, mo_energy, ki, ka, kj, kb)
-                w_iajb = h2mo_ovov[ka]-0.5*h2mo_ovov[kb].transpose(0,3,2,1)
-                tmp1[ka]  = (h2mo_ovov[ka]/e_iajb).conj()
-                tmp1_bar[ka]  =  (w_iajb/e_iajb).conj()
+                w_iajb = h2mo_ovov[ka] - 0.5 * h2mo_ovov[kb].transpose(0, 3, 2, 1)
+                tmp1[ka] = (h2mo_ovov[ka] / e_iajb).conj()
+                tmp1_bar[ka] = (w_iajb / e_iajb).conj()
 
-                #1st order
+                # 1st order
                 ### Tb_iajb * g_iajp -> c1_pb
-                c1[kb,nocc:,:] -= 2*numpy.einsum('iajb, iajp -> bp',tmp1_bar[ka],h2mo_ovog[ka])
+                c1[kb, nocc:, :] -= 2 * numpy.einsum('iajb, iajp -> bp', tmp1_bar[ka], h2mo_ovog[ka])
                 ### Tb_iajb * g_iapb -> c1_jp
-                c1[kj,:,:nocc] += 2*numpy.einsum('iajb, iapb -> pj',tmp1_bar[ka],h2mo_ovgv[ka])
+                c1[kj, :, :nocc] += 2 * numpy.einsum('iajb, iapb -> pj', tmp1_bar[ka], h2mo_ovgv[ka])
                 ### Tb_iajb * f_ia   -> c1_jb
-                if ki==ka:
-                    c1[kj,nocc:,:nocc] += 2*numpy.einsum('iajb, ia -> bj',tmp1_bar[ka],fock_hf[ka,:nocc,nocc:])
+                if ki == ka:
+                    c1[kj, nocc:, :nocc] += 2 * numpy.einsum('iajb, ia -> bj', tmp1_bar[ka], fock_hf[ka, :nocc, nocc:])
                 ### c0_1st
-                c0 -= 4*numpy.einsum('iajb, iajb',tmp1_bar[ka], h2mo_ovov[ka]).real
+                c0 -= 4 * numpy.einsum('iajb, iajb', tmp1_bar[ka], h2mo_ovov[ka]).real
                 ### 2nd order
-                if ki==ka:
-                    y1[kj] += 2*numpy.einsum('ia, iajb -> bj',fock_hf[ka][:nocc,nocc:], tmp1_bar[ka])
-                    tmp_bar[ki,kj] = tmp1_bar[ka]
-                    print(ki,kj)
-                y2[ka] = numpy.einsum('ca, iclb -> ialb', fock_hf[ka,nocc:,nocc:], tmp1_bar[ka].conj())
-                y3[ka] = numpy.einsum('ik, kalb -> ialb', fock_hf[ki,:nocc,:nocc], tmp1_bar[ka].conj())
-                y4[ki,:,:] += numpy.einsum('iajb, kajb -> ki', tmp1[ka], tmp1_bar[ka].conj())
-                y5[ka,:,:] += numpy.einsum('iajb, icjb -> ac', tmp1[ka], tmp1_bar[ka].conj())
+                if ki == ka:
+                    y1[kj] += 2 * numpy.einsum('ia, iajb -> bj', fock_hf[ka][:nocc, nocc:], tmp1_bar[ka])
+                    tmp_bar[ki, kj] = tmp1_bar[ka]
+                    print(ki, kj)
+                y2[ka] = numpy.einsum('ca, iclb -> ialb', fock_hf[ka, nocc:, nocc:], tmp1_bar[ka].conj())
+                y3[ka] = numpy.einsum('ik, kalb -> ialb', fock_hf[ki, :nocc, :nocc], tmp1_bar[ka].conj())
+                y4[ki, :, :] += numpy.einsum('iajb, kajb -> ki', tmp1[ka], tmp1_bar[ka].conj())
+                y5[ka, :, :] += numpy.einsum('iajb, icjb -> ac', tmp1[ka], tmp1_bar[ka].conj())
 
-                c2[kj,:nocc,:nocc] += numpy.einsum('ialb, iajb -> lj', y2[ka], tmp1[ka]) #[2]
-                c2[ki,:nocc,:nocc] += numpy.einsum('kajb, iajb -> ki', y2[ka], tmp1[ka]) #[3]
-                c2[kb,nocc:,nocc:] -= numpy.einsum('iajd, iajb -> bd', y2[ka], tmp1[ka]) #[8]
-                c2[kj,:nocc,:nocc] -= numpy.einsum('ialb, iajb -> lj', y3[ka], tmp1[ka]) #[4]
-                c2[ka,nocc:,nocc:] += numpy.einsum('icjb, iajb -> ac', y3[ka], tmp1[ka]) #[7]
-                c2[kb,nocc:,nocc:] += numpy.einsum('iajd, iajb -> bd', y3[ka], tmp1[ka]) #[6] 
-                c0 -= 4*numpy.einsum('iajb,iajb ->', y2[ka], tmp1[ka]).real #[11]
-                c0 += 4*numpy.einsum('iajb,iajb ->', y3[ka], tmp1[ka]).real #[10]
+                c2[kj, :nocc, :nocc] += numpy.einsum('ialb, iajb -> lj', y2[ka], tmp1[ka])  # [2]
+                c2[ki, :nocc, :nocc] += numpy.einsum('kajb, iajb -> ki', y2[ka], tmp1[ka])  # [3]
+                c2[kb, nocc:, nocc:] -= numpy.einsum('iajd, iajb -> bd', y2[ka], tmp1[ka])  # [8]
+                c2[kj, :nocc, :nocc] -= numpy.einsum('ialb, iajb -> lj', y3[ka], tmp1[ka])  # [4]
+                c2[ka, nocc:, nocc:] += numpy.einsum('icjb, iajb -> ac', y3[ka], tmp1[ka])  # [7]
+                c2[kb, nocc:, nocc:] += numpy.einsum('iajd, iajb -> bd', y3[ka], tmp1[ka])  # [6]
+                c0 -= 4 * numpy.einsum('iajb,iajb ->', y2[ka], tmp1[ka]).real  # [11]
+                c0 += 4 * numpy.einsum('iajb,iajb ->', y3[ka], tmp1[ka]).real  # [10]
 
     for ki in range(nkpts):
-        c2[ki,:nocc,:] -= numpy.einsum('ip, ki -> kp', fock_hf[ki,:nocc,:], y4[ki]) #[5]
-        c2[ki,:,nocc:] -= numpy.einsum('pa, ac -> pc',fock_hf[ki,:,nocc:], y5[ki]) #[9]
-        c2[ki,:nocc,nocc:] += numpy.einsum('qbj, qjbkc -> kc', y1, tmp_bar[:,ki,:,:,:,:].conj()) #[1]
+        c2[ki, :nocc, :] -= numpy.einsum('ip, ki -> kp', fock_hf[ki, :nocc, :], y4[ki])  # [5]
+        c2[ki, :, nocc:] -= numpy.einsum('pa, ac -> pc', fock_hf[ki, :, nocc:], y5[ki])  # [9]
+        c2[ki, :nocc, nocc:] += numpy.einsum('qbj, qjbkc -> kc', y1, tmp_bar[:, ki, :, :, :, :].conj())  # [1]
 
     c0 /= nkpts
     c1 += c2
     return c0, c1
+
 
 def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
     nmo = mp.nmo
@@ -351,7 +350,7 @@ def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
     kd = mp.kpts
     kconserv = mp.khelper.kconserv
     fao2mo = mp._scf.with_df.ao2mo
-   
+
     IP_v1 = 0
     IP_v2 = 0
     IP_v3 = 0
@@ -360,49 +359,88 @@ def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
     EA_c3 = 0
     nk = 0
 
-    tmp1_bar_iajh = numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    w_iajh =  numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    tmp1_bar_ialb = numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
-    w_ialb =  numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
-    h2mo_ovoo = numpy.zeros((nkpts,nkpts,nocc,nvir,nocc,nocc), dtype=complex)
-    h2mo_ovvv = numpy.zeros((nkpts,nkpts,nocc,nvir,nvir,nvir), dtype=complex)
+    tmp1_bar_iajh = numpy.zeros((nkpts, nkpts, nocc, nvir, nocc, nocc), dtype=complex)
+    w_iajh = numpy.zeros((nkpts, nkpts, nocc, nvir, nocc, nocc), dtype=complex)
+    tmp1_bar_ialb = numpy.zeros((nkpts, nkpts, nocc, nvir, nvir, nvir), dtype=complex)
+    w_ialb = numpy.zeros((nkpts, nkpts, nocc, nvir, nvir, nvir), dtype=complex)
+    h2mo_ovoo = numpy.zeros((nkpts, nkpts, nocc, nvir, nocc, nocc), dtype=complex)
+    h2mo_ovvv = numpy.zeros((nkpts, nkpts, nocc, nvir, nvir, nvir), dtype=complex)
 
     for ki in range(nkpts):
-         for kj in range(nkpts):
-             for ka in range(nkpts):
-                 kb = kconserv[ki,ka,kj]
-                 o_i = mo_coeff[ki][:,:nocc]
-                 o_a = mo_coeff[ka][:,nocc:]
-                 o_j = mo_coeff[kj]
-                 o_b = mo_coeff[kb]
-                 if kb==nk:
-                     h2mo_ovoo[ki,ka] = fao2mo((o_i,o_a,o_j[:,:nocc],o_b[:,:nocc]),
-                                (mp.kpts[ki],mp.kpts[ka],mp.kpts[kj],mp.kpts[kb]),
-                                compact=False).reshape(nocc,nvir,nocc,nocc)/nkpts
-                 if kj==nk:
-                     h2mo_ovvv[ki,ka] = fao2mo((o_i,o_a,o_j[:,nocc:],o_b[:,nocc:]),
-                                (mp.kpts[ki],mp.kpts[ka],mp.kpts[kj],mp.kpts[kb]),
-                                compact=False).reshape(nocc,nvir,nvir,nvir)/nkpts
-             for ka in range(nkpts):
-                 kb = kconserv[ki,ka,kj]
-                 e_iajb, e_ialb, e_iajh, e_ahij = ene_denom(mp, mo_energy, ki, ka, kj, kb)
-                 if kb==nk:
-                     w_iajh[ki,ka] = h2mo_ovoo[ki,ka]-0.5*h2mo_ovoo[kj,ka].transpose(2,1,0,3)
-                     tmp1_bar_iajh[ki,ka] =  (w_iajh[ki,ka]/e_iajh).conj()
-                     IP_v1 +=  2*numpy.einsum('iaj, iaj -> ',tmp1_bar_iajh[ki,ka][:,:,:,nocc-1],h2mo_ovoo[ki,ka][:,:,:,nocc-1]).real
-                     IP_v2 +=  2*numpy.einsum('iaj, iaj -> ',tmp1_bar_iajh[ki,ka][:,:,:,nocc-2],h2mo_ovoo[ki,ka][:,:,:,nocc-2]).real
-                     IP_v3 +=  2*numpy.einsum('iaj, iaj -> ',tmp1_bar_iajh[ki,ka][:,:,:,nocc-3],h2mo_ovoo[ki,ka][:,:,:,nocc-3]).real
-                 if kj==nk:
-                     w_ialb = h2mo_ovvv[ki,ka]-0.5*h2mo_ovvv[ki,kb].transpose(0,3,2,1)
-                     tmp1_bar_ialb  =  (w_ialb/e_ialb).conj()
-                     EA_c1 -=  2*numpy.einsum('iab, iab -> ',tmp1_bar_ialb[:,:,0,:],h2mo_ovvv[ki,ka][:,:,0,:]).real
-                     EA_c2 -=  2*numpy.einsum('iab, iab -> ',tmp1_bar_ialb[:,:,1,:],h2mo_ovvv[ki,ka][:,:,1,:]).real
-                     EA_c3 -=  2*numpy.einsum('iab, iab -> ',tmp1_bar_ialb[:,:,2,:],h2mo_ovvv[ki,ka][:,:,2,:]).real
+        for kj in range(nkpts):
+            for ka in range(nkpts):
+                kb = kconserv[ki, ka, kj]
+                o_i = mo_coeff[ki][:, :nocc]
+                o_a = mo_coeff[ka][:, nocc:]
+                o_j = mo_coeff[kj]
+                o_b = mo_coeff[kb]
+                if kb == nk:
+                    h2mo_ovoo[ki, ka] = (
+                        fao2mo(
+                            (o_i, o_a, o_j[:, :nocc], o_b[:, :nocc]),
+                            (mp.kpts[ki], mp.kpts[ka], mp.kpts[kj], mp.kpts[kb]),
+                            compact=False,
+                        ).reshape(nocc, nvir, nocc, nocc)
+                        / nkpts
+                    )
+                if kj == nk:
+                    h2mo_ovvv[ki, ka] = (
+                        fao2mo(
+                            (o_i, o_a, o_j[:, nocc:], o_b[:, nocc:]),
+                            (mp.kpts[ki], mp.kpts[ka], mp.kpts[kj], mp.kpts[kb]),
+                            compact=False,
+                        ).reshape(nocc, nvir, nvir, nvir)
+                        / nkpts
+                    )
+            for ka in range(nkpts):
+                kb = kconserv[ki, ka, kj]
+                e_iajb, e_ialb, e_iajh, e_ahij = ene_denom(mp, mo_energy, ki, ka, kj, kb)
+                if kb == nk:
+                    w_iajh[ki, ka] = h2mo_ovoo[ki, ka] - 0.5 * h2mo_ovoo[kj, ka].transpose(2, 1, 0, 3)
+                    tmp1_bar_iajh[ki, ka] = (w_iajh[ki, ka] / e_iajh).conj()
+                    IP_v1 += (
+                        2
+                        * numpy.einsum(
+                            'iaj, iaj -> ',
+                            tmp1_bar_iajh[ki, ka][:, :, :, nocc - 1],
+                            h2mo_ovoo[ki, ka][:, :, :, nocc - 1],
+                        ).real
+                    )
+                    IP_v2 += (
+                        2
+                        * numpy.einsum(
+                            'iaj, iaj -> ',
+                            tmp1_bar_iajh[ki, ka][:, :, :, nocc - 2],
+                            h2mo_ovoo[ki, ka][:, :, :, nocc - 2],
+                        ).real
+                    )
+                    IP_v3 += (
+                        2
+                        * numpy.einsum(
+                            'iaj, iaj -> ',
+                            tmp1_bar_iajh[ki, ka][:, :, :, nocc - 3],
+                            h2mo_ovoo[ki, ka][:, :, :, nocc - 3],
+                        ).real
+                    )
+                if kj == nk:
+                    w_ialb = h2mo_ovvv[ki, ka] - 0.5 * h2mo_ovvv[ki, kb].transpose(0, 3, 2, 1)
+                    tmp1_bar_ialb = (w_ialb / e_ialb).conj()
+                    EA_c1 -= (
+                        2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 0, :], h2mo_ovvv[ki, ka][:, :, 0, :]).real
+                    )
+                    EA_c2 -= (
+                        2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 1, :], h2mo_ovvv[ki, ka][:, :, 1, :]).real
+                    )
+                    EA_c3 -= (
+                        2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 2, :], h2mo_ovvv[ki, ka][:, :, 2, :]).real
+                    )
 
-    IP = [IP_v1,IP_v2,IP_v3]
-    EA = [EA_c1,EA_c2,EA_c3]
+    IP = [IP_v1, IP_v2, IP_v3]
+    EA = [EA_c1, EA_c2, EA_c3]
 
     return IP, EA
+
+
 """
 def make_rdm1(mp): # , t2=None, eris=None, verbose=logger.NOTE, ao_repr=False):
     '''Spin-traced one-particle density matrix.
@@ -464,9 +502,12 @@ def _gamma1_intermediates(mp, t2):
                 - numpy.einsum('iab,jba->ij', l2i, t2i)
     return -dm1occ, dm1vir
 """
+
+
 def _add_padding(mp, mo_coeff, mo_energy, mo_occ):
     from pyscf.pbc import tools
     from pyscf.pbc.cc.ccsd import _adjust_occ
+
     nmo = mp.nmo
     nocc = mp.nocc
     nvir = nmo - nocc
@@ -478,13 +519,14 @@ def _add_padding(mp, mo_coeff, mo_energy, mo_occ):
 
     if not numpy.all([x.shape[0] == nmo for x in mo_energy]):
         mo_energy = padded_mo_energy(mp, mo_energy)
-    
+
     if not numpy.all([x.shape[0] == nmo for x in mo_occ]):
         mo_occ = padded_mo_occ(mp, mo_occ)
 
     return mo_coeff, mo_energy, mo_occ
 
-def _padding_k_idx(nmo, nocc, kind="split"):
+
+def _padding_k_idx(nmo, nocc, kind='split'):
     """A convention used for padding vectors, matrices and tensors in case when occupation numbers depend on the
     k-point index.
     Args:
@@ -498,10 +540,10 @@ def _padding_k_idx(nmo, nocc, kind="split"):
         with indexes pointing to actual non-zero entries in the padded vector/matrix/tensor. If kind="joint", a single
         list of arrays is returned corresponding to the entire MO space.
     """
-    if kind not in ("split", "joint"):
+    if kind not in ('split', 'joint'):
         raise ValueError("The 'kind' argument must be one of 'split', 'joint'")
 
-    if kind == "split":
+    if kind == 'split':
         indexes_o = []
         indexes_v = []
     else:
@@ -516,23 +558,27 @@ def _padding_k_idx(nmo, nocc, kind="split"):
 
     for k_o, k_nmo in zip(nocc, nmo):
         k_v = k_nmo - k_o
-        if kind == "split":
+        if kind == 'split':
             indexes_o.append(numpy.arange(k_o))
             indexes_v.append(numpy.arange(dense_v - k_v, dense_v))
         else:
-            indexes.append(numpy.concatenate((
-                numpy.arange(k_o),
-                numpy.arange(dense_nmo - k_v, dense_nmo),
-            )))
+            indexes.append(
+                numpy.concatenate(
+                    (
+                        numpy.arange(k_o),
+                        numpy.arange(dense_nmo - k_v, dense_nmo),
+                    )
+                )
+            )
 
-    if kind == "split":
+    if kind == 'split':
         return indexes_o, indexes_v
 
     else:
         return indexes
 
 
-def padding_k_idx(mp, kind="split"):
+def padding_k_idx(mp, kind='split'):
     """A convention used for padding vectors, matrices and tensors in case when occupation numbers depend on the
     k-point index.
 
@@ -587,6 +633,7 @@ def padding_k_idx(mp, kind="split"):
     """
     return _padding_k_idx(mp.get_nmo(per_kpoint=True), mp.get_nocc(per_kpoint=True), kind=kind)
 
+
 def padded_mo_occ(mp, mo_occ):
     """
     Pads occupancy of active MOs.
@@ -595,7 +642,7 @@ def padded_mo_occ(mp, mo_occ):
         Padded molecular occupancy.
     """
     frozen_mask = get_frozen_mask(mp)
-    padding_convention = padding_k_idx(mp, kind="joint")
+    padding_convention = padding_k_idx(mp, kind='joint')
     nkpts = mp.nkpts
 
     result = numpy.zeros((nkpts, mp.nmo), dtype=mo_occ[0].dtype)
@@ -617,7 +664,7 @@ def padded_mo_energy(mp, mo_energy):
         Padded molecular energies.
     """
     frozen_mask = get_frozen_mask(mp)
-    padding_convention = padding_k_idx(mp, kind="joint")
+    padding_convention = padding_k_idx(mp, kind='joint')
     nkpts = mp.nkpts
 
     result = numpy.zeros((nkpts, mp.nmo), dtype=mo_energy[0].dtype)
@@ -639,7 +686,7 @@ def padded_mo_coeff(mp, mo_coeff):
         Padded molecular coefficients.
     """
     frozen_mask = get_frozen_mask(mp)
-    padding_convention = padding_k_idx(mp, kind="joint")
+    padding_convention = padding_k_idx(mp, kind='joint')
     nkpts = mp.nkpts
 
     result = numpy.zeros((nkpts, mo_coeff[0].shape[0], mp.nmo), dtype=mo_coeff[0].dtype)
@@ -650,7 +697,7 @@ def padded_mo_coeff(mp, mo_coeff):
 
 
 def _frozen_sanity_check(frozen, mo_occ, kpt_idx):
-    '''Performs a few sanity checks on the frozen array and mo_occ.
+    """Performs a few sanity checks on the frozen array and mo_occ.
 
     Specific tests include checking for duplicates within the frozen array.
 
@@ -660,22 +707,23 @@ def _frozen_sanity_check(frozen, mo_occ, kpt_idx):
             resulting from a mean-field-like calculation.
         kpt_idx (int): The k-point that `mo_occ` and `frozen` belong to.
 
-    '''
+    """
     frozen = numpy.array(frozen)
     nocc = numpy.count_nonzero(mo_occ > 0)
     nvir = len(mo_occ) - nocc
     assert nocc, 'No occupied orbitals?\n\nnocc = %s\nmo_occ = %s' % (nocc, mo_occ)
     all_frozen_unique = (len(frozen) - len(numpy.unique(frozen))) == 0
     if not all_frozen_unique:
-        raise RuntimeError('Frozen orbital list contains duplicates!\n\nkpt_idx %s\n'
-                           'frozen %s' % (kpt_idx, frozen))
+        raise RuntimeError('Frozen orbital list contains duplicates!\n\nkpt_idx %s\nfrozen %s' % (kpt_idx, frozen))
     if len(frozen) > 0 and numpy.max(frozen) > len(mo_occ) - 1:
-        raise RuntimeError('Freezing orbital not in MO list!\n\nkpt_idx %s\n'
-                           'frozen %s\nmax orbital idx %s' % (kpt_idx, frozen, len(mo_occ) - 1))
+        raise RuntimeError(
+            'Freezing orbital not in MO list!\n\nkpt_idx %s\n'
+            'frozen %s\nmax orbital idx %s' % (kpt_idx, frozen, len(mo_occ) - 1)
+        )
 
 
 def get_nocc(mp, per_kpoint=False):
-    '''Number of occupied orbitals for k-point calculations.
+    """Number of occupied orbitals for k-point calculations.
 
     Number of occupied orbitals for use in a calculation with k-points, taking into
     account frozen orbitals.
@@ -689,13 +737,15 @@ def get_nocc(mp, per_kpoint=False):
         nocc (int, list of int): Number of occupied orbitals. For return type, see description of arg
             `per_kpoint`.
 
-    '''
+    """
     for i, moocc in enumerate(mp.mo_occ):
         if numpy.any(moocc % 1 != 0):
-            raise RuntimeError("Fractional occupation numbers encountered @ kp={:d}: {}. This may have been caused by "
-                               "smearing of occupation numbers in the mean-field calculation. If so, consider "
-                               "executing mf.smearing_method = False; mf.mo_occ = mf.get_occ() prior to calling "
-                               "this".format(i, moocc))
+            raise RuntimeError(
+                'Fractional occupation numbers encountered @ kp={:d}: {}. This may have been caused by '
+                'smearing of occupation numbers in the mean-field calculation. If so, consider '
+                'executing mf.smearing_method = False; mf.mo_occ = mf.get_occ() prior to calling '
+                'this'.format(i, moocc)
+            )
     if mp._nocc is not None:
         return mp._nocc
     if isinstance(mp.frozen, (int, numpy.integer)):
@@ -710,9 +760,11 @@ def get_nocc(mp, per_kpoint=False):
     elif isinstance(mp.frozen[0], (list, numpy.ndarray)):
         nkpts = len(mp.frozen)
         if nkpts != mp.nkpts:
-            raise RuntimeError('Frozen list has a different number of k-points (length) than passed in mean-field/'
-                               'correlated calculation.  \n\nCalculation nkpts = %d, frozen list = %s '
-                               '(length = %d)' % (mp.nkpts, mp.frozen, nkpts))
+            raise RuntimeError(
+                'Frozen list has a different number of k-points (length) than passed in mean-field/'
+                'correlated calculation.  \n\nCalculation nkpts = %d, frozen list = %s '
+                '(length = %d)' % (mp.nkpts, mp.frozen, nkpts)
+            )
         [_frozen_sanity_check(frozen, mo_occ, ikpt) for ikpt, frozen, mo_occ in zip(range(nkpts), mp.frozen, mp.mo_occ)]
 
         nocc = []
@@ -723,8 +775,11 @@ def get_nocc(mp, per_kpoint=False):
     else:
         raise NotImplementedError
 
-    assert any(numpy.array(nocc) > 0), ('Must have occupied orbitals! \n\nnocc %s\nfrozen %s\nmo_occ %s' %
-           (nocc, mp.frozen, mp.mo_occ))
+    assert any(numpy.array(nocc) > 0), 'Must have occupied orbitals! \n\nnocc %s\nfrozen %s\nmo_occ %s' % (
+        nocc,
+        mp.frozen,
+        mp.mo_occ,
+    )
 
     if not per_kpoint:
         nocc = numpy.amax(nocc)
@@ -733,7 +788,7 @@ def get_nocc(mp, per_kpoint=False):
 
 
 def get_nmo(mp, per_kpoint=False):
-    '''Number of orbitals for k-point calculations.
+    """Number of orbitals for k-point calculations.
 
     Number of orbitals for use in a calculation with k-points, taking into account
     frozen orbitals.
@@ -752,7 +807,7 @@ def get_nmo(mp, per_kpoint=False):
         nmo (int, list of int): Number of orbitals. For return type, see description of arg
             `per_kpoint`.
 
-    '''
+    """
     if mp._nmo is not None:
         return mp._nmo
 
@@ -764,17 +819,22 @@ def get_nmo(mp, per_kpoint=False):
     elif isinstance(mp.frozen, (list, numpy.ndarray)):
         nkpts = len(mp.frozen)
         if nkpts != mp.nkpts:
-            raise RuntimeError('Frozen list has a different number of k-points (length) than passed in mean-field/'
-                               'correlated calculation.  \n\nCalculation nkpts = %d, frozen list = %s '
-                               '(length = %d)' % (mp.nkpts, mp.frozen, nkpts))
+            raise RuntimeError(
+                'Frozen list has a different number of k-points (length) than passed in mean-field/'
+                'correlated calculation.  \n\nCalculation nkpts = %d, frozen list = %s '
+                '(length = %d)' % (mp.nkpts, mp.frozen, nkpts)
+            )
         [_frozen_sanity_check(fro, mo_occ, ikpt) for ikpt, fro, mo_occ in zip(range(nkpts), mp.frozen, mp.mo_occ)]
 
         nmo = [len(mp.mo_occ[ikpt]) - len(mp.frozen[ikpt]) for ikpt in range(nkpts)]
     else:
         raise NotImplementedError
 
-    assert all(numpy.array(nmo) > 0), ('Must have a positive number of orbitals!\n\nnmo %s\nfrozen %s\nmo_occ %s' %
-           (nmo, mp.frozen, mp.mo_occ))
+    assert all(numpy.array(nmo) > 0), 'Must have a positive number of orbitals!\n\nnmo %s\nfrozen %s\nmo_occ %s' % (
+        nmo,
+        mp.frozen,
+        mp.mo_occ,
+    )
 
     if not per_kpoint:
         # Depending on whether there are more occupied bands, we want to make sure that
@@ -787,7 +847,7 @@ def get_nmo(mp, per_kpoint=False):
 
 
 def get_frozen_mask(mp):
-    '''Boolean mask for orbitals in k-point post-HF method.
+    """Boolean mask for orbitals in k-point post-HF method.
 
     Creates a boolean mask to remove frozen orbitals and keep other orbitals for post-HF
     calculations.
@@ -798,11 +858,11 @@ def get_frozen_mask(mp):
     Returns:
         moidx (list of :obj:`ndarray` of `numpy.bool`): Boolean mask of orbitals to include.
 
-    '''
+    """
     moidx = [numpy.ones(x.size, dtype=bool) for x in mp.mo_occ]
     if isinstance(mp.frozen, (int, numpy.integer)):
         for idx in moidx:
-            idx[:mp.frozen] = False
+            idx[: mp.frozen] = False
     elif isinstance(mp.frozen[0], (int, numpy.integer)):
         frozen = list(mp.frozen)
         for idx in moidx:
@@ -810,9 +870,11 @@ def get_frozen_mask(mp):
     elif isinstance(mp.frozen[0], (list, numpy.ndarray)):
         nkpts = len(mp.frozen)
         if nkpts != mp.nkpts:
-            raise RuntimeError('Frozen list has a different number of k-points (length) than passed in mean-field/'
-                               'correlated calculation.  \n\nCalculation nkpts = %d, frozen list = %s '
-                               '(length = %d)' % (mp.nkpts, mp.frozen, nkpts))
+            raise RuntimeError(
+                'Frozen list has a different number of k-points (length) than passed in mean-field/'
+                'correlated calculation.  \n\nCalculation nkpts = %d, frozen list = %s '
+                '(length = %d)' % (mp.nkpts, mp.frozen, nkpts)
+            )
         [_frozen_sanity_check(fro, mo_occ, ikpt) for ikpt, fro, mo_occ in zip(range(nkpts), mp.frozen, mp.mo_occ)]
         for ikpt, kpt_occ in enumerate(moidx):
             kpt_occ[mp.frozen[ikpt]] = False
@@ -825,8 +887,10 @@ def get_frozen_mask(mp):
 class OBMP2(lib.StreamObject):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
 
-        if mo_coeff  is None: mo_coeff  = mf.mo_coeff
-        if mo_occ    is None: mo_occ    = mf.mo_occ
+        if mo_coeff is None:
+            mo_coeff = mf.mo_coeff
+        if mo_occ is None:
+            mo_occ = mf.mo_occ
 
         self.thresh = 1e-08
         self.shift = 0.0
@@ -846,8 +910,8 @@ class OBMP2(lib.StreamObject):
         self.second_order = True
         self.ampf = 1
 
-##################################################
-# don't modify the following attributes, they are not input options
+        ##################################################
+        # don't modify the following attributes, they are not input options
         self.kpts = mf.kpts
         self.nkpts = numpy.shape(mf.mo_energy)[0]
         self.khelper = kpts_helper.KptsHelper(mf.cell, mf.kpts)
@@ -863,6 +927,7 @@ class OBMP2(lib.StreamObject):
     @property
     def nocc(self):
         return self.get_nocc()
+
     @nocc.setter
     def nocc(self, n):
         self._nocc = n
@@ -870,6 +935,7 @@ class OBMP2(lib.StreamObject):
     @property
     def nmo(self):
         return self.get_nmo()
+
     @nmo.setter
     def nmo(self, n):
         self._nmo = n
@@ -877,7 +943,7 @@ class OBMP2(lib.StreamObject):
     get_nocc = get_nocc
     get_nmo = get_nmo
     get_frozen_mask = get_frozen_mask
-    #int_transform = int_transform
+    # int_transform = int_transform
 
     def dump_flags(self, verbose=None):
         log = logger.new_logger(self, verbose)
@@ -886,8 +952,7 @@ class OBMP2(lib.StreamObject):
         log.info('nocc = %s, nmo = %s', self.nocc, self.nmo)
         if self.frozen != 0:
             log.info('frozen orbitals %s', self.frozen)
-        log.info('max_memory %d MB (current use %d MB)',
-                 self.max_memory, lib.current_memory()[0])
+        log.info('max_memory %d MB (current use %d MB)', self.max_memory, lib.current_memory()[0])
         return self
 
     @property
@@ -896,16 +961,14 @@ class OBMP2(lib.StreamObject):
 
     @property
     def e_tot(self):
-        return self.ene_tot #+ self._scf.e_tot
+        return self.ene_tot  # + self._scf.e_tot
 
-
-    def kernel(self, shift=0.0, mo_energy=None, mo_coeff=None, mo_occ=None, with_t2=WITH_T2,
-               _kern=kernel):
-        '''
+    def kernel(self, shift=0.0, mo_energy=None, mo_coeff=None, mo_occ=None, with_t2=WITH_T2, _kern=kernel):
+        """
         Args:
             with_t2 : bool
-                Whether to generate and hold t2 amplitudes in memory.     
-        '''
+                Whether to generate and hold t2 amplitudes in memory.
+        """
         if mo_occ is None:
             mo_occ = self.mo_occ
         if mo_energy is None:
@@ -914,36 +977,35 @@ class OBMP2(lib.StreamObject):
             mo_coeff = self.mo_coeff
         if mo_energy is None or mo_coeff is None or mo_occ is None:
             log = logger.Logger(self.stdout, self.verbose)
-            log.warn('mo_coeff, mo_energy are not given.\n'
-                     'You may need to call mf.kernel() to generate them.')
+            log.warn('mo_coeff, mo_energy are not given.\nYou may need to call mf.kernel() to generate them.')
 
         mo_coeff, mo_energy, mo_occ = _add_padding(self, mo_coeff, mo_energy, mo_occ)
 
         if self.verbose >= logger.WARN:
             self.check_sanity()
-        #self.dump_flags()
-        #_kern(self, mo_energy, mo_coeff, eris, with_t2, self.verbose)
-        self.ene_tot, self.mo_energy= _kern(self, mo_energy, mo_coeff, mo_occ, with_t2, self.verbose)
+        # self.dump_flags()
+        # _kern(self, mo_energy, mo_coeff, eris, with_t2, self.verbose)
+        self.ene_tot, self.mo_energy = _kern(self, mo_energy, mo_coeff, mo_occ, with_t2, self.verbose)
         self._finalize()
         return self.ene_tot, self.mo_energy
 
     def _finalize(self):
-        '''Hook for dumping results and clearing up the object.'''
-        logger.note(self, 'E(%s) = %.15g',
-                    self.__class__.__name__, self.e_tot)
+        """Hook for dumping results and clearing up the object."""
+        logger.note(self, 'E(%s) = %.15g', self.__class__.__name__, self.e_tot)
         return self
 
     make_veff = make_veff
-    #make_amp  = make_amp
+    # make_amp  = make_amp
     first_BCH = first_BCH
-    #second_BCH = second_BCH
-    #make_rdm1 = make_rdm1
-    #make_rdm2 = make_rdm2
+    # second_BCH = second_BCH
+    # make_rdm1 = make_rdm1
+    # make_rdm2 = make_rdm2
 
-    #as_scanner = as_scanner
+    # as_scanner = as_scanner
 
     def density_fit(self, auxbasis=None, with_df=None):
         from pyscf.mp import dfmp2
+
         mymp = dfmp2.DFMP2(self._scf, self.frozen, self.mo_coeff, self.mo_occ)
         if with_df is not None:
             mymp.with_df = with_df
@@ -954,7 +1016,8 @@ class OBMP2(lib.StreamObject):
 
     def nuc_grad_method(self):
         from pyscf.grad import mp2
+
         return mp2.Gradients(self)
 
 
-del(WITH_T2)
+del WITH_T2

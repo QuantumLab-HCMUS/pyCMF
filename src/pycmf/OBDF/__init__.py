@@ -9,8 +9,4 @@ from .uobmp2_downfold import UOBMP2 as UOBMP2_downfold
 # Thêm thuật toán Downfolding cho hệ tuần hoàn (Periodic/K-points)
 from .krobdf import OBMP2 as KROBDF
 
-__all__ = [
-    'OBMP2_downfold', 
-    'UOBMP2_downfold',
-    'KROBDF'
-]
+__all__ = ['OBMP2_downfold', 'UOBMP2_downfold', 'KROBDF']

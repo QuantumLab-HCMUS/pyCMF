@@ -6,80 +6,80 @@ from pyscf import fci
 from pyscf.fci import direct_uhf, direct_spin1, spin_op
 import numpy as np
 
+
 # ===== 0. Khai báo các hàm =====
-def occstr(bin_str, norb): #Chuyen binary string thành occupation string chuan
-    return format(int(bin_str, 2), f"0{norb}b")
+def occstr(bin_str, norb):  # Chuyen binary string thành occupation string chuan
+    return format(int(bin_str, 2), f'0{norb}b')
+
 
 def print_ci(ci, norbcas, neleccas, nocc_inact, tol=0.05):
     from pyscf.fci import addons
-    
-    norb = norbcas + nocc_inact[0] 
+
+    norb = norbcas + nocc_inact[0]
     nelec = np.array(neleccas) + nocc_inact[1]
-    
+
     terms = addons.large_ci(ci, norbcas, sum(neleccas), tol=tol)
-    a_0 = [1]*nelec[0] + [0]*(norb-nelec[0])
-    b_0 = [1]*nelec[1] + [0]*(norb-nelec[1])
+    a_0 = [1] * nelec[0] + [0] * (norb - nelec[0])
+    b_0 = [1] * nelec[1] + [0] * (norb - nelec[1])
 
     for coeff, a, b in terms:
-    
-        a_str = occstr(a, norbcas) + '1'*nocc_inact[1]
-        b_str = occstr(b, norbcas) + '1'*nocc_inact[1]
-      
+        a_str = occstr(a, norbcas) + '1' * nocc_inact[1]
+        b_str = occstr(b, norbcas) + '1' * nocc_inact[1]
+
         a_occ = np.array(list(map(int, str(a_str))))
         b_occ = np.array(list(map(int, str(b_str))))
         a_occ = a_occ[::-1]
         b_occ = b_occ[::-1]
-        
+
         a_tran = a_occ - a_0
         b_tran = b_occ - b_0
-        
-        a_add  = np.where(a_tran ==  1)[0] + 1
+
+        a_add = np.where(a_tran == 1)[0] + 1
         a_lost = np.where(a_tran == -1)[0] + 1
 
-        b_add  = np.where(b_tran ==  1)[0] + 1
+        b_add = np.where(b_tran == 1)[0] + 1
         b_lost = np.where(b_tran == -1)[0] + 1
 
-        print(f"{coeff:+.6f}  α:{a_str}  β:{b_str}", "α:", a_lost, "->", a_add, "β:", b_lost, "->", b_add)
+        print(f'{coeff:+.6f}  α:{a_str}  β:{b_str}', 'α:', a_lost, '->', a_add, 'β:', b_lost, '->', b_add)
+
 
 def print_ref(ci_vecs, norbcas, neleccas, nocc_inact, ene):
-    print("Ref:\n")    
+    print('Ref:\n')
     for i, ci in enumerate(ci_vecs):
         s2, mult = spin_op.spin_square(ci, norb, sum(neleccas))
-        print("\nstate", i, "E:", e_df_fci[i], "E_exci:", ene[i] - ene[0])
-        print(f"<S^2> = {s2:.0f}, multiplicity = {mult:.0f}")
+        print('\nstate', i, 'E:', e_df_fci[i], 'E_exci:', ene[i] - ene[0])
+        print(f'<S^2> = {s2:.0f}, multiplicity = {mult:.0f}')
         print_ci(ci, norbcas, neleccas, nocc_inact)
+
 
 np.set_printoptions(precision=8, suppress=True)  # suppress=True bỏ 'e-xx'
 
 # ===== 1. Khai báo input: H2O =====
-'''
+"""
 2
 Carbon monoxide,^1 Sigma^+,CC3,aug-cc-pVTZ
 C    0.00000000            0.00000000           -0.66116488
 O    0.00000000            0.00000000            0.47237899
-'''
+"""
 
-nocc_inact = [2, 2]     
-nact = [8,8]
-nelec = [7,7]            
-num_particles = [5, 5]   
-caslist_a = list(range(nocc_inact[0]+1,nact[0]+nocc_inact[0]+1))       # active orbital index (0-based)
+nocc_inact = [2, 2]
+nact = [8, 8]
+nelec = [7, 7]
+num_particles = [5, 5]
+caslist_a = list(range(nocc_inact[0] + 1, nact[0] + nocc_inact[0] + 1))  # active orbital index (0-based)
 caslist_b = caslist_a
 caslist = [caslist_a, caslist_b]
 
-print("Carbon monoxide ", nocc_inact[0], "freeze", nact[0], "active")
+print('Carbon monoxide ', nocc_inact[0], 'freeze', nact[0], 'active')
 
 n = 17
 
 # Tạo phân tử
 mol = gto.Mole()
 
-mol.atom = [
-		['C',    (0.00000000,            0.00000000,           -0.66116488)],
-		['O',    (0.00000000,            0.00000000,            0.47237899)]
-]
+mol.atom = [['C', (0.00000000, 0.00000000, -0.66116488)], ['O', (0.00000000, 0.00000000, 0.47237899)]]
 
-mol.basis = "aug-cc-pVTZ"
+mol.basis = 'aug-cc-pVTZ'
 mol.spin = 0
 mol.build()
 
@@ -105,10 +105,10 @@ mo_sorted = mcscf.sort_mo(mycas, uobmp.mo_coeff, caslist)
 uobact = UOBMP2_downfold(myuhf, nact=nact, nocc_act=num_particles)
 uobact.mo_coeff = mo_sorted
 uobact.mo_energy = uobmp.mo_energy
-uobact.c0_tot = getattr(uobmp, "c0_tot", None)
-uobact.ene_tot = getattr(uobmp, "ene_tot", None)
-uobact.fock_hf = getattr(uobmp, "fock_hf", None)
-uobact.c1 = getattr(uobmp, "c1", None)
+uobact.c0_tot = getattr(uobmp, 'c0_tot', None)
+uobact.ene_tot = getattr(uobmp, 'ene_tot', None)
+uobact.fock_hf = getattr(uobmp, 'fock_hf', None)
+uobact.c1 = getattr(uobmp, 'c1', None)
 uobact.second_order = True
 
 # Sắp lại tmp1/tmp1_bar cho đúng thứ tự MO
@@ -119,15 +119,15 @@ uobact.tmp1_bar = uobact.sort_tmp1(uobmp.tmp1_bar, caslist)
 uobact.kernel()
 
 # ===== 7. Lấy kết quả downfold =====
-h1mo_act_eff = uobact.h1mo_act_eff   # ma trận 1-electron active-space
-h2mo_act = uobact.h2mo_act   # tensor 2-electron active-space
-ene_inact = uobact.ene_inact # năng lượng inactive-space
+h1mo_act_eff = uobact.h1mo_act_eff  # ma trận 1-electron active-space
+h2mo_act = uobact.h2mo_act  # tensor 2-electron active-space
+ene_inact = uobact.ene_inact  # năng lượng inactive-space
 
-'''
+"""
 print("h1mo_act_eff:\n", h1mo_act_eff)
 print("h2mo_act:\n", h2mo_act)
 print("E_inact =", ene_inact)
-'''
+"""
 
 # ====== 9. FCI cho Hamiltonian đã downfold ======
 # h1mo_act_eff là tuple (h1a, h1b)
@@ -149,27 +149,26 @@ norb = nact[0]  # hoặc nact[1], 2 giá trị này phải bằng nhau
 # Khởi tạo FCI solver dạng UHF
 cis = direct_uhf.FCI()
 
-cis.nroots = n  
+cis.nroots = n
 
 # Chạy FCI với Hamiltonian downfold
 # Hàm kernel trả về (năng lượng, vector sóng)
 # Năng lượng này chỉ là phần active-space (đã bao gồm hiệu ứng outer qua downfold)
 e_df_fci_act, ci_vecs = cis.kernel((h1a, h1b), (h2aa, h2ab, h2bb), norb, (nalpha, nbeta))
-e_df_fci = e_df_fci_act + [ene_inact]*cis.nroots
+e_df_fci = e_df_fci_act + [ene_inact] * cis.nroots
 
 e_df_fci_act *= 27.21138629
 e_df_fci *= 27.21138629
 
-print("Downfold + FCI")
+print('Downfold + FCI')
 print_ref(ci_vecs, norb, num_particles, nocc_inact, e_df_fci)
 
 
-
-'''    
+"""    
 print("e_fci_act:", e_df_fci_act)
 print("e_fci_tot:", e_df_fci)
 
 e_exci_df_fci= e_df_fci - [e_df_fci[0]]*len(e_df_fci)
 e_exci_df_fci= np.delete(e_exci_df_fci,0)
 print("e_exci_fci_tot:", e_exci_df_fci)
-'''
+"""
