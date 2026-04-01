@@ -47,7 +47,7 @@ Install pyCMF along with all its core dependencies (pyscf, opt_einsum, numpy, sc
 Run the following command. Do not forget the .[dev] at the end!
 
 ```Bash
-pip install -e .[dev]
+pip install -e ".[dev]"
 
 ```
 
