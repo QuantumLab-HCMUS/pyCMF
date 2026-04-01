@@ -19,6 +19,12 @@ dependencies = [
     "opt_einsum>=3.4.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff==0.15.8",
+    "pre-commit>=3.6.0"
+]
+
 [project.urls]
 Homepage = "https://github.com/QuantumLab-HCMUS/pyCMF"
 
