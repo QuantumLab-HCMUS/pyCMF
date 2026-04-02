@@ -13,7 +13,7 @@ PyCMF is a Python package including correlated mean-field methods for molecules 
 Download to your local machine
 
 ```bash
-git clone https://github.com/Quantum-Lab-HCMUS/pyCMF.git
+git clone https://github.com/QuantumLab-HCMUS/pyCMF.git
 cd pyCMF
 
 ```
@@ -40,11 +40,26 @@ conda activate pycmf
 
 *(You should see `(pycmf)` appear at the beginning of your terminal prompt).*
 
-### Step 4: Install the Package in Editable Mode (Crucial Step)
+### Step 4: Install the Package in Editable Mode
 
-Install `pyCMF` along with all its dependencies (`pyscf`, `opt_einsum`, `numpy`, `scipy`) by running the following command. **Do not forget the dot (`.`) at the end!**
+Install pyCMF along with all its core dependencies (pyscf, opt_einsum, numpy, scipy) AND development tools (ruff, pre-commit).
 
-```bash
-pip install -e .
+Run the following command. Do not forget the .[dev] at the end!
+
+```Bash
+pip install -e ".[dev]"
 
 ```
+
+*(Note: The [dev] flag tells pip to look into the pyproject.toml file and install the necessary formatting and linting tools required for QuantumLab contributors).*
+
+### Step 5: Initialize Pre-commit Hooks (For Contributors)
+
+To maintain a clean and standard codebase, QuantumLab uses automated formatting (Ruff). You must activate the pre-commit hook before writing any code:
+
+```Bash
+pre-commit install
+
+```
+
+*(You should see a success message like pre-commit installed at .git/hooks/pre-commit. From now on, your code will be automatically formatted whenever you run git commit).*

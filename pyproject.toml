@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Orbital-Optimized Møller-Plesset Perturbation Theory (OB-MP2) calculations"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "Proprietary"
+license = {text = "Proprietary"}
 authors = [
   {name = "QuantumLab HCMUS"}
 ]
@@ -17,6 +17,12 @@ dependencies = [
     "scipy",
     "pyscf>=2.10.0",
     "opt_einsum>=3.4.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff==0.15.8",
+    "pre-commit>=3.6.0"
 ]
 
 [project.urls]

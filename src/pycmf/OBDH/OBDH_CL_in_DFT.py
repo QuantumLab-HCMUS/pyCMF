@@ -30,166 +30,506 @@ from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 from pyscf.mp import mp2
-from pycmf.OBMP import dfobmp2
-from pycmf.OBMP import obmp2_slow
+from pycmf.OBMP import DFOBMP2, OBMP2_slow, _ChemistsERIs
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 from pyscf.tools import cubegen
 
 ##
-from pyscf import dft
+from pyscf import dft, scf, lo
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
 
-def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbose=logger.NOTE, alphaa=(0.5, 0.5)):
-    # da sua alpha=0.5 thành alpha=(0.5,0.5)
-    # mp.second_order = False
-    alphaa = mp.alphaa
-    mol = mp.mol
-    if mp.mo_energy is None or mp.mo_coeff is None:
-        mo_coeff_init = mp._scf.mo_coeff
-        mo_coeff = mp._scf.mo_coeff
-        mo_energy = mp._scf.mo_energy
-    else:
-        mo_coeff_init = mp.mo_coeff
-        mo_coeff = mp.mo_coeff
-        mo_energy = mp.mo_energy
+import time
+import numpy as np
+import scipy.linalg
+from pyscf import lib, dft, scf
+from pyscf.lib import logger
 
+
+def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=True, verbose=logger.NOTE, alphaa=(0.5, 0.5)):
+
+    # ----------------------------------------------------------------------
+    # 1. INITIALIZATION & SETUP
+    # ----------------------------------------------------------------------
     log = logger.new_logger(mp, verbose)
     t0 = (time.process_time(), time.time())
 
-    nuc = mp._scf.energy_nuc()
-    ene_hf = mp._scf.energy_tot()
+    mol = mp.mol
+    if hasattr(mp, 'alphaa'):
+        alphaa = mp.alphaa
 
-    # prepare initial MOs
-    idx_a = numpy.argsort(mp._scf.mo_occ[0])[::-1]
-    idx_b = numpy.argsort(mp._scf.mo_occ[1])[::-1]
-
-    # initializing w/ HF
-    mo_occ = mp._scf.mo_occ
-
-    nmoa, nmob = mp.get_nmo()
-    nocca, noccb = mp.get_nocc()
-    nvira, nvirb = nmoa - nocca, nmob - noccb
-    ##
-    idx_occ_a = idx_a[0:nocca]
-    idx_occ_b = idx_b[0:noccb]
-    idx_vir_a = idx_a[nocca:nmoa]
-    idx_vir_b = idx_b[noccb:nmob]
-
-    mo_coeff_init = numpy.zeros_like(mp._scf.mo_coeff)
-
-    mo_coeff_init[0][:, :nocca] = mp._scf.mo_coeff[0][:, idx_occ_a[:nocca]]
-    mo_coeff_init[1][:, :noccb] = mp._scf.mo_coeff[1][:, idx_occ_b[:noccb]]
-    mo_coeff_init[0][:, nocca:nmoa] = mp._scf.mo_coeff[0][:, idx_vir_a[:nvira]]
-    mo_coeff_init[1][:, noccb:nmob] = mp._scf.mo_coeff[1][:, idx_vir_b[:nvirb]]
-
-    mo_energy_init = numpy.zeros_like(mp._scf.mo_energy)
-    mo_energy_init[0][:nocca] = mp._scf.mo_energy[0][idx_occ_a[:nocca]]
-    mo_energy_init[1][:noccb] = mp._scf.mo_energy[1][idx_occ_b[:noccb]]
-    mo_energy_init[0][nocca:nmoa] = mp._scf.mo_energy[0][idx_vir_a[:nvira]]
-    mo_energy_init[1][noccb:nmob] = mp._scf.mo_energy[1][idx_vir_b[:nvirb]]
-    # initialize mp
-    mp.mo_occ = numpy.zeros_like(mp.mo_occ)
-    mp.mo_occ[0][:nocca] = 1.0
-    mp.mo_occ[1][:noccb] = 1.0
-    ##
-
-    mo_ea, mo_eb = mo_energy
-    eia_a = mo_ea[:nocca, None] - mo_ea[None, nocca:]
-    eia_b = mo_eb[:noccb, None] - mo_eb[None, noccb:]
-
-    ##
+    # Overlap matrix & Orthogonalization matrix
     S = mp._scf.get_ovlp()
     A = scipy.linalg.fractional_matrix_power(S, -0.5)
+    mu = mp.mu
+    # ----------------------------------------------------------------------
+    # 2. FULL SYSTEM DFT REFERENCE
+    # ----------------------------------------------------------------------
+    print('\n' + '=' * 70)
+    print('UOBMP2-IN-DFT EMBEDDING WITH SPADE PARTITIONING')
+    print('=' * 70)
+    print('\n--- STEP 1: Running Full System DFT ---')
+
+    # ---- Step 1: Full DFT
+    xc_code = f'{alphaa[0]}*HF + {1 - alphaa[0]}*B88, {1 - alphaa[1]}*LYP'
+    logger.info(mp, f'Custom XC: {xc_code}')
+
+    ks_full = run_full_dft(mol, xc_code)
+    print(f'Full DFT Energy: {ks_full.e_tot:.8f} Eh')
+
+    # Get H_Core Full (include all potential energy of nuclear)
+    h_core_full = ks_full.get_hcore()
+
+    # ---- Step 2: SPADE
+    C_occ_a = ks_full.mo_coeff[0][:, ks_full.mo_occ[0] > 0]
+    C_occ_b = ks_full.mo_coeff[1][:, ks_full.mo_occ[1] > 0]
+    atom_indices_A = mp.active_atoms  # OH group
+
+    print('\n --- Partitioning ---')
+    C_A_a, C_B_a = spade_partition(mol, S, C_occ_a, atom_indices_A, True, 'Alpha')
+    C_A_b, C_B_b = spade_partition(mol, S, C_occ_b, atom_indices_A, False, 'Beta')
+
+    na_act = C_A_a.shape[1]
+    nb_act = C_A_b.shape[1]
+
+    gamma_A = (build_density_matrix(C_A_a), build_density_matrix(C_A_b))
+    gamma_B = (build_density_matrix(C_B_a), build_density_matrix(C_B_b))
+
+    # ---- Step 3: Energy Components & Embedding Potential
+    print('\n--- Constructing Potentials ---')
+    h_core_A_iso = get_subsystem_hcore(mol, atom_indices_A)
+
+    # e_dft_A_iso  = calculate_dft_energy_isolated(mol, xc_code,
+    #                                              gamma_A, h_core_A_iso,
+    #                                              atom_indices_A)
+    # print(f"E_DFT[A] (Isolated Total): {e_dft_A_iso:.8f} Eh")
+
+    # Embedding potential
+    v_emb, P_B = build_embedding_potential(mol, xc_code, S, mu, ks_full, gamma_B, gamma_A)
+    # --- Step 4: Embedded UOBMP2 ---
+    print('\n--- Running UOBMP2 in DFT Environment ---')
+    # E_WF_A_Internal (Isolated)
+    e_wf_A_internal, e_dft_A_relax, gamma_uobmp2 = run_embed_uobmp2(
+        mp,
+        mol,
+        xc_code,
+        h_core_full,
+        h_core_A_iso,
+        v_emb,
+        gamma_A,
+        (na_act, nb_act),
+        atom_indices_A,
+        use_cl=mp.use_cl,  # True: CL truncation; False: full virtual space
+        cl_n_shells=mp.n_shells,  # số CL shells (chỉ dùng khi use_cl=True)
+        cl_mu_threshold=1e5,  # ngưỡng loại orbital bị đẩy bởi mu*P_B
+    )
+
+    gamma_uobmp2_a, gamma_uobmp2_b = gamma_uobmp2
+
+    # Baseline correction: E_DFT[A_relax + B] - E_DFT[A_relax]
+    gamma_relax = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
+
+    e_dft_full_relax = ks_full.energy_tot(dm=gamma_relax)
+    e_baseline = e_dft_full_relax - e_dft_A_relax
+
+    # Relaxation correction
+    v_emb_np_a = v_emb[0] - mp.mu * P_B[0]
+    v_emb_np_b = v_emb[1] - mp.mu * P_B[1]
+
+    # e_relax = np.einsum('ij,ji', gamma_uobmp2_a - gamma_A[0], v_emb_np_a)+ \
+    #          np.einsum('ij,ji', gamma_uobmp2_b - gamma_A[1], v_emb_np_b)
+
+    # Orthogonality correction
+    e_ortho = mp.mu * (np.einsum('ij,ji', gamma_uobmp2_a, P_B[0]) + np.einsum('ij,ji', gamma_uobmp2_b, P_B[1]))
+
+    # e_final = e_wf_A_internal + e_baseline + e_relax + e_ortho
+    e_final = e_wf_A_internal + e_baseline + e_ortho
+
+    print('-' * 60)
+    print(f'E_WF[A] (Internal, Recalculated): {e_wf_A_internal:.8f}')
+    print(f'Baseline (Full - Iso)           : {e_baseline:.8f}')
+    # print(f"Relaxation Correction           : {e_relax:.8f}")
+    print(f'Orthogonality Correction        : {e_ortho:.8f}')
+    print('-' * 60)
+    print(f'Total UOBMP2-in-DFT Energy        : {e_final:.8f} Eh')
+    print(f'Ref DFT Energy                  : {ks_full.e_tot:.8f} Eh')
+    print(f'Difference (Gain)               : {(e_final - ks_full.e_tot) * 1e6:.2f} uEh')
+    print('=' * 60)
+
+    dm_total_a = gamma_uobmp2[0] + gamma_B[0]
+    dm_total_b = gamma_uobmp2[1] + gamma_B[1]
+    dm_total_final = (dm_total_a, dm_total_b)
+    dip_mom = np.linalg.norm(make_dipole(mol, dm_total_final))
+    print(f'Norm of Dipole Moment       : {(dip_mom)}')
+    print('=' * 60)
+    return e_final, ks_full.e_tot
+
+
+import numpy as np
+
+
+def dot(A, B):
+    return np.einsum('ij, ij', A, B)
+
+
+def run_full_dft(mol, xc):
+    ks = dft.UKS(mol)
+    ks.xc = xc
+    ks.verbose = 0
+    ks = ks.density_fit()  # Tăng tốc
+    ks.kernel()
+    return ks
+
+
+def spade_partition(mol, S, C_occ, atom_indices_A, plot=False, label='Alpha'):
+    from scipy.linalg import fractional_matrix_power
+    import numpy as np
+
+    """Bước 2: Phân chia orbital bằng SPADE (SVD)."""
+    # Chuyển sang cơ sở trực giao
+    S_half = fractional_matrix_power(S, 0.5)
+    C_bar = S_half @ C_occ
+
+    # Lấy chỉ số AO của nguyên tử A
+    ao_indices_A = []
+    ao_slices = mol.aoslice_by_atom()
+    for atom_idx in atom_indices_A:
+        start, end = ao_slices[atom_idx][2], ao_slices[atom_idx][3]
+        ao_indices_A.extend(range(start, end))
+
+    C_bar_A = C_bar[ao_indices_A, :]
+
+    # SVD
+    # sigma là mảng các giá trị từ lớn đến nhỏ (thường từ 1.0 xuống 0.0)
+    U, sigma, Vh = np.linalg.svd(C_bar_A, full_matrices=False)
+    V = Vh.T
+    C_spade = C_occ @ V
+
+    # --- Xử lý Gap và chọn Active Space ---
+    num_A_orbs = 0
+    gap_val = 0.0
+
+    # Trường hợp 1: Full System (Tất cả sigma ~ 1.0)
+    if np.min(sigma) > 0.99:
+        if plot:
+            print(f'   [SPADE-{label}] Detected Full System (All sigma ~ 1.0). Selecting ALL orbitals.')
+        num_A_orbs = C_occ.shape[1]  # Lấy toàn bộ số cột (NOCC)
+
+    # Trường hợp 2: Empty System (Tất cả sigma ~ 0.0)
+    elif np.max(sigma) < 0.01:
+        if plot:
+            print(f'   [SPADE-{label}] Detected Empty System. Selecting 0 orbitals.')
+        num_A_orbs = 0
+
+    # Trường hợp 3: Hệ thống con bình thường (Có Gap)
+    else:
+        if len(sigma) > 1:
+            gaps = sigma[:-1] - sigma[1:]
+            gap_idx = np.argmax(gaps)
+            num_A_orbs = gap_idx + 1
+            gap_val = gaps[gap_idx]
+        else:
+            num_A_orbs = len(sigma)
+            gap_val = 0.0  # Không có gap nếu chỉ có 1 orbital
+
+        if plot:
+            print(f'   [SPADE-{label}] Active orbitals: {num_A_orbs} (Gap: {gap_val:.4f})')
+
+    C_A = C_spade[:, :num_A_orbs]
+    C_B = C_spade[:, num_A_orbs:]
+
+    # [FIX] Đã xóa dòng raise ValueError ở đây
+    return C_A, C_B
+
+
+def build_density_matrix(C_occ):
+    return C_occ @ C_occ.T
+
+
+def get_subsystem_hcore(mol, active_atoms):
+    """Lấy H_core chỉ chứa hạt nhân của hệ A (Isolated Hamiltonian)."""
+    t = mol.intor('int1e_kin')
+    v_nuc = np.zeros_like(t)
+    # Chỉ cộng thế hạt nhân của các nguyên tử trong A
+    for i in active_atoms:
+        with mol.with_rinv_origin(mol.atom_coord(i)):
+            v_nuc += -mol.atom_charge(i) * mol.intor('int1e_rinv')
+    return t + v_nuc
+
+
+def calculate_dft_energy_isolated(mol, xc, gamma_A_tuple, h_core_A, active_atoms):
+    """Tính năng lượng DFT của hệ A cô lập (Baseline)."""
+
+    mf_tmp = dft.UKS(mol)
+    mf_tmp.xc = xc
+    mf_tmp.verbose = 0
+    mf_tmp = mf_tmp.density_fit()
+
+    e_elec, _ = mf_tmp.energy_elec([gamma_A_tuple[0], gamma_A_tuple[1]], h1e=h_core_A)
+
+    # ---- Nuclear Repulsion of Subsystem A
+    e_nuc_A = 0.0
+    coords = mol.atom_coords()
+    charges = mol.atom_charges()
+    for i in range(len(active_atoms)):
+        for j in range(i + 1, len(active_atoms)):
+            at_i = active_atoms[i]
+            at_j = active_atoms[j]
+            dist = np.linalg.norm(coords[at_i] - coords[at_j])
+            e_nuc_A += (charges[at_i] * charges[at_j]) / dist
+
+    return e_elec + e_nuc_A
+
+
+def build_embedding_potential(mol, xc_code, S, mu, mf_full, gamma_B_tuple, gamma_A_tuple):
+    """Xây dựng v_emb = v_eff[A+B] - v_eff[A] + mu*P_B."""
+    dm_full = mf_full.make_rdm1()
+    dm_A = [gamma_A_tuple[0], gamma_A_tuple[1]]
+
+    # V_eff (Total) từ Full DFT
+    veff_full = mf_full.get_veff(mol, dm_full)
+
+    # V_eff (A) từ mật độ A (dùng DFT operator của cả hệ)
+    mf_tmp = dft.UKS(mol)
+    mf_tmp.xc = xc_code
+    mf_tmp.verbose = 0
+    mf_tmp = mf_tmp.density_fit()
+    veff_A = mf_tmp.get_veff(mol, dm_A)
+
+    # Projection Operator
+    P_B_a = S @ gamma_B_tuple[0] @ S
+    P_B_b = S @ gamma_B_tuple[1] @ S
+
+    # v_emb = v_eff[Total] - v_eff[A] + mu * P_B
+    v_emb_a = veff_full[0] - veff_A[0] + mu * P_B_a
+    v_emb_b = veff_full[1] - veff_A[1] + mu * P_B_b
+
+    return [v_emb_a, v_emb_b], [P_B_a, P_B_b]
+
+
+def run_embed_uobmp2(
+    mp,
+    mol,
+    xc,
+    h_core_full,
+    h_core_A_iso,
+    v_emb,
+    gamma_init,
+    num_active_orbs,
+    atom_indices_A,
+    use_cl=False,
+    cl_n_shells=1,
+    cl_mu_threshold=1e5,
+):
+    """
+    Tham số:
+        use_cl          : True  → dùng Concentric Localization để thu gọn virtual space
+                          False → dùng trực tiếp mo_coeff từ UHF có v_emb (hành vi gốc)
+        cl_n_shells     : số CL shells (mặc định 1, tương đương "double-zeta CL")
+        cl_mu_threshold : ngưỡng loại orbital bị đẩy bởi mu*P_B (mặc định 1e5)
+    """
+
+    print(f'   [Embedded UOBMP2] Initializing UHF with Embedding Potential...')
+
+    # Adapt the number of electrons of subsystem A
+    na, nb = num_active_orbs
+    mol.nelectron = na + nb
+    mol.spin = na - nb
+
+    # Make a UHF shell
+    mf_emb = scf.UHF(mol)
+    mf_emb.verbose = 0
+
+    # Original get_veff module of mf_emb
+    original_get_veff = mf_emb.get_veff
+
+    # Override get_veff để thêm Embedding Potential
+    def get_veff_emb(mol, dm, dm_last=0, vhf_last=0):
+        veff = original_get_veff(mol, dm, dm_last, vhf_last)
+        return np.array([veff[0] + v_emb[0], veff[1] + v_emb[1]])
+
+    mf_emb.get_veff = get_veff_emb
+
+    # Keep H_core as full core hamiltonian for sth
+    mf_emb.get_hcore = lambda *args: h_core_full
+
+    # Run UHF
+    try:
+        mf_emb.kernel(dm0=gamma_init)
+    except Exception as e:
+        print(f'   [Warning] UHF kernel failed: {e}. Trying without dm0...')
+        mf_emb.kernel()
+
+    if not mf_emb.converged:
+        print('   [Warning] Embedded UHF did not converge!')
+
+    print(f'   [Embedded UOBMP2] UHF Reference Energy: {mf_emb.e_tot:.8f}')
+
+    # =========================================================================
+    # [LỰA CHỌN: CL TRUNCATION hoặc dùng thẳng MO từ UHF]
+    # =========================================================================
+    if use_cl:
+        print(
+            f'   [Embedded UOBMP2] Performing Concentric Localization '
+            f'(n_shells={cl_n_shells}) to truncate virtual space...'
+        )
+        from .CL_embed import concentric_localization
+        import scipy.linalg as la
+
+        # Lấy danh sách AO indices từ atom_indices_A
+        active_aos = []
+        aoslice = mol.aoslice_by_atom()
+        for atom_id in atom_indices_A:
+            p0, p1 = aoslice[atom_id][2], aoslice[atom_id][3]
+            active_aos.extend(range(p0, p1))
+
+        S_mat = mf_emb.get_ovlp()
+        F_mat = mf_emb.get_fock()  # (F_a, F_b)
+
+        new_mo_coeff = []
+        new_mo_energy = []
+        new_mo_occ = []
+
+        for s in [0, 1]:  # Alpha (0) và Beta (1)
+            C_s = mf_emb.mo_coeff[s]
+            occ_s = mf_emb.mo_occ[s]
+            eps_s = mf_emb.mo_energy[s]
+            F_s = F_mat[s]
+
+            # 1. Tách Occupied
+            idx_occ = occ_s > 0
+            C_occ_A = C_s[:, idx_occ]
+            eps_occ_A = eps_s[idx_occ]
+
+            # 2. Tách Virtuals thực sự (loại orbital bị đẩy bởi mu*P_B)
+            idx_vir_eff = (occ_s == 0) & (eps_s < cl_mu_threshold)
+            C_vir_eff = C_s[:, idx_vir_eff]
+
+            # 3. CL truncation (verbose=True tự in shell sizes + max shells)
+            C_vir_CL = concentric_localization(C_vir_eff, S_mat, F_s, active_aos, n_shells=cl_n_shells, verbose=True)
+
+            # 4. Pseudo-canonicalize: chéo hóa Fock trong không gian ảo CL
+            F_vir = C_vir_CL.T.conj() @ F_s @ C_vir_CL
+            evals_vir, evecs_vir = la.eigh(F_vir)
+            C_vir_CL_canon = C_vir_CL @ evecs_vir
+
+            # 5. Ghép lại Occ + Vir
+            C_new_s = np.hstack([C_occ_A, C_vir_CL_canon])
+            eps_new_s = np.concatenate([eps_occ_A, evals_vir])
+            occ_new_s = np.concatenate([np.ones(C_occ_A.shape[1]), np.zeros(C_vir_CL_canon.shape[1])])
+
+            new_mo_coeff.append(C_new_s)
+            new_mo_energy.append(eps_new_s)
+            new_mo_occ.append(occ_new_s)
+
+        # Cập nhật mf_emb và mp với không gian CL đã thu gọn
+        mf_emb.mo_coeff = (new_mo_coeff[0], new_mo_coeff[1])
+        mf_emb.mo_energy = (new_mo_energy[0], new_mo_energy[1])
+        mf_emb.mo_occ = (new_mo_occ[0], new_mo_occ[1])
+
+        nmo_new = new_mo_coeff[0].shape[1]
+        mp.mo_coeff = mf_emb.mo_coeff
+        mp.mo_occ = mf_emb.mo_occ
+        mp.mo_energy = mf_emb.mo_energy
+        mp._nmo = (nmo_new, nmo_new)
+        mp.nocc = (np.count_nonzero(mf_emb.mo_occ[0]), np.count_nonzero(mf_emb.mo_occ[1]))
+
+        nmo_a = mf_emb.mo_coeff[0].shape[1]
+        nmo_b = mf_emb.mo_coeff[1].shape[1]
+        print(f'   [Embedded UOBMP2] CL truncation done. NMO alpha={nmo_a}, beta={nmo_b}')
+
+    # Run UOBMP2
+    print(f'   [Embedded UOBMP2] Running UOBMP2...')
+    e_tot, e_dft, gamma_uobmp2 = obmp2_iter(mp, mol, mf_emb, xc, v_emb)
+
+    # --- Step 5: Final Energy Correction
+    print('\n--- Final Energy Correction ---')
+
+    gamma_uobmp2_a, gamma_uobmp2_b = gamma_uobmp2
+
+    # 1. 1-electron Energy (Isolated)
+    e_1e_iso = np.einsum('ij,ji', h_core_A_iso, gamma_uobmp2_a + gamma_uobmp2_b)
+
+    # 2. 2-electron Energy (Coulomb + HF Exchange + XC)
+    # Dùng DFT helper để tính chính xác phần này từ Gamma_CC
+    mf_tmp = dft.UKS(mol)
+    mf_tmp.xc = xc
+    mf_tmp.verbose = 0
+    mf_tmp = mf_tmp.density_fit()
+
+    e_elec_meanfield, _ = mf_tmp.energy_elec([gamma_uobmp2_a, gamma_uobmp2_b], h1e=h_core_A_iso)
+
+    coords = mol.atom_coords()
+    charges = mol.atom_charges()
+    e_nuc_A = 0.0
+    for i in range(len(atom_indices_A)):
+        for j in range(i + 1, len(atom_indices_A)):
+            at_i = atom_indices_A[i]
+            at_j = atom_indices_A[j]
+            dist = np.linalg.norm(coords[at_i] - coords[at_j])
+            e_nuc_A += (charges[at_i] * charges[at_j]) / dist
+
+    # return e_elec_meanfield + e_nuc_A + e_corr, gamma_uobmp2
+    return e_tot, e_dft, gamma_uobmp2
+
+
+def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb, niter=1000):
+
+    nmoa = mf_emb.mo_coeff[0].shape[1]
+    nmob = mf_emb.mo_coeff[1].shape[1]
+
+    nocca = numpy.count_nonzero(mf_emb.mo_occ[0] > 0)
+    noccb = numpy.count_nonzero(mf_emb.mo_occ[1] > 0)
+
+    dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
+    s1e = mf_emb.get_ovlp(mol)
+    h1e = mf_emb.get_hcore(mol)
+    vhf = mf_emb.get_veff(mol, dm)
+    nuc = mf_emb.energy_nuc()
+
+    A = scipy.linalg.fractional_matrix_power(s1e, -0.5)
+
+    ks = dft.UKS(mol)
+    ks.xc = xc_code
+    ks.verbose = 0
+    ks = ks.density_fit()
 
     F_list_a = []
     DIIS_RESID_a = []
     F_list_b = []
     DIIS_RESID_b = []
 
-    D_a = numpy.zeros((nmoa, nmoa))
-    D_old_a = numpy.zeros((nmoa, nmoa)) + 1e-4
-    D_b = numpy.zeros((nmob, nmob))
-    D_old_b = numpy.zeros((nmob, nmob)) + 1e-4
-
-    ##
-
-    shift = mp.shift
-
-    niter = mp.niter
     ene_old = 0.0
     conv = False
-    t0 = log.timer('initialization', *t0)
-
-    print('Number mo', nmoa)
-    print('Number occ', nocca)
-    print('Number Vir', nvira)
-
-    # eri_ao = mp.mol.intor('int2e_sph')
-    # t0 = log.timer('AO 2e-integral generation', *t0)
-
-    logger.info(mp, 'shift = %g', mp.shift)
-    logger.info(mp, 'thresh = %g ', mp.thresh)
-
-    ##
-    # logger.info(mp, 'css = %g', mp.css)
-    # logger.info(mp, 'cos = %g', mp.cos)
-    ##
-
-    # initual-hf-pyscf
-    dm = mp._scf.make_rdm1(mp.mo_coeff, mp.mo_occ)
-    print
-    s1e = mp._scf.get_ovlp(mol)
-    h1e = mp._scf.get_hcore(mol)
-    vhf = mp._scf.get_veff(mol, dm)
-
-    # initial dft:
-
-    print('DFT part')
-    ##ks= dft.UKS(mol,f"{alpha}*HF+ {1-alpha}*B88,0.73*LYP").density_fit()
-    ks = dft.UKS(mol, f'{(alphaa[0])}*HF+{(1 - alphaa[0])}*B88, {(1 - alphaa[1])}* LYP').density_fit()
-    vxc = ks.get_veff(mp._scf.mol, dm)
-
-    print('main ub2plyp--dfuobmp2 program')
 
     for it in range(niter):
-        t0 = (time.process_time(), time.time())
-
-        h1ao = mp._scf.get_hcore(mp.mol)
-        h1mo_a = numpy.matmul(mo_coeff[0].T, numpy.matmul(h1ao, mo_coeff[0]))
-        h1mo_b = numpy.matmul(mo_coeff[1].T, numpy.matmul(h1ao, mo_coeff[1]))
-
-        #####################
-        ### Hartree-Fock part
-
-        """fock_hfa = h1mo_a
-        fock_hfb = h1mo_b
-
-        veffa, veffb, c0 = make_veff(mp)
-        fock_hfa += veffa
-        fock_hfb += veffb
-
-        if it > 0:
-            fock_a_old = fock_a
-            fock_b_old = fock_b
-        fock_a = fock_hfa
-        fock_b = fock_hfb"""
-
-        fock_hfa = 0
-        fock_hfb = 0
+        h1ao = mf_emb.get_hcore(mol)
+        h1mo_a = numpy.matmul(mf_emb.mo_coeff[0].T, numpy.matmul(h1ao, mf_emb.mo_coeff[0]))
+        h1mo_b = numpy.matmul(mf_emb.mo_coeff[1].T, numpy.matmul(h1ao, mf_emb.mo_coeff[1]))
 
         fock_hfa = h1mo_a
         fock_hfb = h1mo_b
 
+        # ==============================================================================
+        # [QUAN TRỌNG] ĐỒNG BỘ HÓA mp VỚI mf_emb
+        # Để mp biết được orbital và năng lượng hiện tại của vòng lặp embedding
+        # ==============================================================================
+        mp.mo_coeff = mf_emb.mo_coeff
+        mp.mo_occ = mf_emb.mo_occ
+        mp.mo_energy = mf_emb.mo_energy
+        # Cập nhật _scf trong mp để các hàm con dùng đúng đối tượng tích phân
+        mp._scf = mf_emb
+        # Cập nhật số lượng orbital để get_nmo() hoạt động đúng
+        mp._nocc = (nocca, noccb)
+        mp._nmo = (nmoa, nmob)
+
+        # [FIX] Truyền 'mp' (đã đồng bộ) vào make_veff thay vì 'mf_emb'
         veffa, veffb, c0 = make_veff(mp)
+
         fock_hfa += veffa
         fock_hfb += veffb
-
-        if it > 0:
-            fock_uobmp2_a_old = fock_uobmp2_a
-            fock_uobmp2_b_old = fock_uobmp2_b
 
         fock_uobmp2_a = numpy.zeros((nmoa, nmoa), dtype=fock_hfa.dtype)
         fock_uobmp2_b = numpy.zeros((nmob, nmob), dtype=fock_hfb.dtype)
@@ -197,41 +537,36 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
         fock_uobmp2_a += fock_hfa
         fock_uobmp2_b += fock_hfb
 
-        e_corr = 0.0
+        # ... (Đoạn tính ene_hf giữ nguyên) ...
         ene_hf = 0.0
         for i in range(nocca):
             ene_hf += fock_uobmp2_a[i, i]
-
         for i in range(noccb):
             ene_hf += fock_uobmp2_b[i, i]
-
         c0 *= 0.5
         ene_hf += c0
 
-        t0 = log.timer('the HF part', *t0)
-
-        # fock dft
-        vxc = ks.get_veff(mp._scf.mol, dm)
-        fock_dft = ks.get_fock(h1e, s1e, vxc, dm, it)
-        fock_dft_a = numpy.matmul(mo_coeff[0].T, numpy.matmul(fock_dft[0], mo_coeff[0]))
-        fock_dft_b = numpy.matmul(mo_coeff[1].T, numpy.matmul(fock_dft[1], mo_coeff[1]))
-        # e__ft
+        # DFT part
+        vxc = ks.get_veff(mol, dm)
+        fock_dft = ks.get_fock(h1e, s1e, vxc, dm, diis_start_cycle=it) + v_emb
+        fock_dft_a = numpy.matmul(mf_emb.mo_coeff[0].T, numpy.matmul(fock_dft[0], mf_emb.mo_coeff[0]))
+        fock_dft_b = numpy.matmul(mf_emb.mo_coeff[1].T, numpy.matmul(fock_dft[1], mf_emb.mo_coeff[1]))
         ene_dft = ks.energy_elec(dm, h1e, vxc)[0] + nuc
-        # fock hf pyscf
-        vhf = mp._scf.get_veff(mp._scf.mol, dm)
-        fock_hf_pyscf = mp._scf.get_fock(h1e, s1e, vhf, dm, it)
 
-        fock_hf_pyscf_a = numpy.matmul(mo_coeff[0].T, numpy.matmul(fock_hf_pyscf[0], mo_coeff[0]))
-        fock_hf_pyscf_b = numpy.matmul(mo_coeff[1].T, numpy.matmul(fock_hf_pyscf[1], mo_coeff[1]))
-        # e_hfpyscf
-        e_elec_hfpyscf = mp._scf.energy_elec(dm, h1e, vhf)[0]
+        # [FIX] Gọi phương thức từ mf_emb
+        vhf = mf_emb.get_veff(mol, dm)
+        fock_hf_pyscf = mf_emb.get_fock(h1e, s1e, vhf, dm, diis_start_cycle=it)  # check tham số diis
+
+        fock_hf_pyscf_a = numpy.matmul(mf_emb.mo_coeff[0].T, numpy.matmul(fock_hf_pyscf[0], mf_emb.mo_coeff[0]))
+        fock_hf_pyscf_b = numpy.matmul(mf_emb.mo_coeff[1].T, numpy.matmul(fock_hf_pyscf[1], mf_emb.mo_coeff[1]))
+
+        # [FIX] Gọi phương thức từ mf_emb
+        e_elec_hfpyscf = mf_emb.energy_elec(dm, h1e, vhf)[0]
         ene_hfpyscf = e_elec_hfpyscf + nuc
 
-        ####################
-        #### MP1 amplitude
+        # ---- MP1 amplitude
+        # [FIX] Truyền 'mp' vào make_amp
         tmp1, tmp1_bar = make_amp(mp)
-        t1 = log.timer('making amplitude', *t0)
-
         tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba = tmp1
         tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
 
@@ -243,22 +578,16 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
         tmp1_bar_ab *= mp.ampf
         tmp1_bar_ba *= mp.ampf
 
-        #####################
-        ### BCH 1st order
+        # [FIX] Truyền 'mp' vào first_BCH
         c0, c1_a, c1_b = first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0)
-        t2 = log.timer('making first BCH', *t1)
 
-        # symmetrize c1
         fock_uobmp2_a += 0.5 * (c1_a + c1_a.T)
         fock_uobmp2_b += 0.5 * (c1_b + c1_b.T)
 
-        #####################
-        ### BCH 2nd order
         if mp.second_order:
+            # [FIX] Truyền 'mp' vào second_BCH
             c0, c1_a, c1_b = second_BCH(mp, fock_uobmp2_a, fock_uobmp2_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0)
-            t3 = log.timer('making second BCH', *t2)
 
-            # symmetrize c1
             fock_uobmp2_a += 0.5 * (c1_a + c1_a.T)
             fock_uobmp2_b += 0.5 * (c1_b + c1_b.T)
 
@@ -270,38 +599,45 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
 
         ene_uobmp2 = ene + nuc
 
-        # Total energy
-        ene_tot = (ene_dft) + (ene_uobmp2 - ene_hfpyscf) * alphaa[1]
+        e_tot = (ene_dft) + (ene_uobmp2 - ene_hfpyscf) * mp.alphaa[1]
+        e_corr = (ene_uobmp2 - ene_hfpyscf) * mp.alphaa[1]
 
-        # Fock
-        fock_udftobmp2_a = (fock_dft_a) + (fock_uobmp2_a - fock_hf_pyscf_a) * alphaa[1]
-        fock_udftobmp2_b = (fock_dft_b) + (fock_uobmp2_b - fock_hf_pyscf_b) * alphaa[1]
+        fock_udftobmp2_a = (fock_dft_a) + (fock_uobmp2_a - fock_hf_pyscf_a) * mp.alphaa[1]
+        fock_udftobmp2_b = (fock_dft_b) + (fock_uobmp2_b - fock_hf_pyscf_b) * mp.alphaa[1]
 
-        de = abs(ene_tot - ene_old)
-        ene_old = ene_tot
-        ss_ref, ss_res, ss_prj = make_S2(mp, tmp1_bar_ab)
+        print()
 
-        ##
-        # fock mo to Fock ao
-        F_a = S @ mp.mo_coeff[0] @ fock_udftobmp2_a @ mp.mo_coeff[0].T @ S
+        de = abs(e_corr - ene_old)
+        ene_old = e_corr
+
+        print(f'Iter {it}: E_corr={e_corr:.8f}, dE={de:.8e}')
+
+        # --- DIIS & Update Orbital ---
+        # Tính Fock tổng hợp trong không gian MO
+        F_eff_mo_a = fock_udftobmp2_a
+        F_eff_mo_b = fock_udftobmp2_b
+
+        # Chuyển về AO để chéo hóa
+        F_a = s1e @ mf_emb.mo_coeff[0] @ F_eff_mo_a @ mf_emb.mo_coeff[0].T @ s1e
+        F_b = s1e @ mf_emb.mo_coeff[1] @ F_eff_mo_b @ mf_emb.mo_coeff[1].T @ s1e
+
         C_occa = mp.mo_coeff[0][:, :nocca]
-        D_a = numpy.einsum('pi,qi->pq', C_occa, C_occa, optimize=True)
-
-        F_b = S @ mp.mo_coeff[1] @ fock_udftobmp2_b @ mp.mo_coeff[1].T @ S
         C_occb = mp.mo_coeff[1][:, :noccb]
+
+        D_a = numpy.einsum('pi,qi->pq', C_occa, C_occa, optimize=True)
         D_b = numpy.einsum('pi,qi->pq', C_occb, C_occb, optimize=True)
 
-        err_a_ao = F_a.dot(D_a).dot(S) - S.dot(D_a).dot(F_a)
-        err_ab_ao = F_a.dot(D_a).dot(S) - S.dot(D_b).dot(F_b)
-        err_ba_ao = F_b.dot(D_b).dot(S) - S.dot(D_a).dot(F_a)
+        err_a_ao = F_a.dot(D_a).dot(s1e) - s1e.dot(D_a).dot(F_a)
+        err_ab_ao = F_a.dot(D_a).dot(s1e) - s1e.dot(D_b).dot(F_b)
+        err_ba_ao = F_b.dot(D_b).dot(s1e) - s1e.dot(D_a).dot(F_a)
         err_a_mo = numpy.matmul(mp.mo_coeff[0].T, numpy.matmul(err_a_ao, mp.mo_coeff[0]))
-        err_b_ao = F_b.dot(D_b).dot(S) - S.dot(D_b).dot(F_b)
+        err_b_ao = F_b.dot(D_b).dot(s1e) - s1e.dot(D_b).dot(F_b)
         err_b_mo = numpy.matmul(mp.mo_coeff[1].T, numpy.matmul(err_b_ao, mp.mo_coeff[1]))
-        err_ab_mo = numpy.matmul(A.T, numpy.matmul(err_ab_ao, A))
-        err_ba_mo = numpy.matmul(A.T, numpy.matmul(err_ba_ao, A))
+        err_ab_mo = mp.mo_coeff[0].T @ err_ab_ao @ mp.mo_coeff[0]
+        err_ba_mo = mp.mo_coeff[0].T @ err_ba_ao @ mp.mo_coeff[0]
 
         # Build DIIS Residual
-        diis_r_a = A.dot(err_a_mo + err_b_mo + 50 * err_ab_mo + 50 * err_ba_mo).dot(A)
+        diis_r_a = err_a_mo + err_b_mo + 50 * err_ab_mo + 50 * err_ba_mo
         diis_r_a = diis_r_a.real
         # diis_r_a = A.real.dot(err_a_mo).dot(A.real) + A.real.dot(err_b_mo).dot(A.real) + A.real.dot(err_ab_mo).dot(A.real) + A.real.dot(err_ba_mo).dot(A.real)
 
@@ -334,12 +670,14 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
             for x in range(coeff_a.shape[0] - 1):
                 F_a += coeff_a[x] * F_list_a[x]
 
-        # Compute new orbital guess with DIIS Fock matrix
-        mp.mo_energy[0], mp.mo_coeff[0] = scipy.linalg.eigh(F_a, S)
-
         # Build DIIS Residual
-        diis_r_b = A.dot(1 * err_a_mo + 1 * err_b_mo + 50 * err_ab_mo + 50 * err_ba_mo).dot(A)
+        err_ab_mo_b = mp.mo_coeff[1].T @ err_ab_ao @ mp.mo_coeff[1]
+        err_ba_mo_b = mp.mo_coeff[1].T @ err_ba_ao @ mp.mo_coeff[1]
+        err_b_mo_b = mp.mo_coeff[1].T @ err_b_ao @ mp.mo_coeff[1]
+        err_a_mo_b = mp.mo_coeff[1].T @ err_a_ao @ mp.mo_coeff[1]
+        diis_r_b = 1 * err_a_mo_b + 1 * err_b_mo_b + 50 * err_ab_mo_b + 50 * err_ba_mo_b
         diis_r_b = diis_r_b.real
+
         # diis_r_b = A.real.dot(err_a_mo).dot(A.real) + A.real.dot(err_b_mo).dot(A.real) + A.real.dot(err_ab_mo).dot(A.real) + A.real.dot(err_ba_mo).dot(A.real)
         F_list_b.append(F_b)
         DIIS_RESID_b.append(diis_r_b)
@@ -368,56 +706,41 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
             for x in range(coeff_b.shape[0] - 1):
                 F_b += coeff_b[x] * F_list_b[x]
 
-        # Compute new orbital guess with DIIS Fock matrix
+        # Diagonalize Fock đã DIIS-extrapolate trong MO space
+        # F_a/F_b hiện đang ở AO space (nao×nao) — cần project về MO space trước
+        F_a_mo = mf_emb.mo_coeff[0].T @ F_a @ mf_emb.mo_coeff[0]  # (nmoa, nmoa)
+        F_b_mo = mf_emb.mo_coeff[1].T @ F_b @ mf_emb.mo_coeff[1]  # (nmob, nmob)
 
-        mp.mo_energy[1], mp.mo_coeff[1] = scipy.linalg.eigh(F_b, S)
+        eps_new_a, C_rot_a = scipy.linalg.eigh(F_a_mo)
+        eps_new_b, C_rot_b = scipy.linalg.eigh(F_b_mo)
 
-        ##
+        # Xoay MO coefficients trong AO basis: C_new = C_old @ C_rot
+        mo_coeff_new_a = mf_emb.mo_coeff[0] @ C_rot_a
+        mo_coeff_new_b = mf_emb.mo_coeff[1] @ C_rot_b
 
-        print()
-        logger.info(mp, '========================')
-        logger.info(mp, 'iter = %d  energy = %8.6f energy diff = %8.6f', it, ene_tot, de)
-        logger.info(
-            mp, 'multiplicity <S^2> : Reference = %.8g Response = %.8g Projector = %.8g', ss_ref, ss_res, ss_prj
-        )
-        print(mp.mol.atom)
-        print('Number mo', nmoa)
-        print('alphaa=', mp.alphaa)
-        print('iter=', it)
-        print('diferent energy = ', de)
-        print('UDFTOBMP2 energy = ', ene_tot)
+        # Gán lại bằng tuple mới — tránh lỗi "tuple object does not support item assignment"
+        mf_emb.mo_coeff = (mo_coeff_new_a, mo_coeff_new_b)
+        mf_emb.mo_energy = (eps_new_a, eps_new_b)
 
-        if de <= 1e-06:  # mp.thresh:
+        # Đồng bộ mp với trạng thái mới
+        mp.mo_coeff = mf_emb.mo_coeff
+        mp.mo_energy = mf_emb.mo_energy
+
+        if de <= mp.thresh:
             conv = True
             break
 
-        mp.mo_energy = mo_energy
-        mp.mo_coeff = mo_coeff
+        dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
+        dm = lib.tag_array(dm, mo_coeff=mf_emb.mo_coeff, mo_occ=mf_emb.mo_occ)
 
-        if mp.eval_IPEA:
-            ipea = mp.make_IPEA()
+    dm_total = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
 
-        ####
-        ks.mo_energy = mp.mo_energy
-        ks.mo_coeff = mp.mo_coeff
-        dm = ks.make_rdm1(mp.mo_coeff, mp.mo_occ)
-        # attach mo_coeff and mo_occ to dm to improve DFT get_veff efficiency
-        dm = lib.tag_array(dm, mo_coeff=mp.mo_coeff, mo_occ=mp.mo_occ)
-        ####
+    # Trả về kết quả
+    return e_tot, ene_dft, (dm_total[0], dm_total[1])
 
-    e_corr = ene_tot - ene_hf
 
-    print()
-    if conv:
-        print('UDFTOBMP2 has converged')
-    else:
-        print('UDFTOBMP2 has not converged')
-
-    print('UDFTOBMP2 energy = ', ene_tot)
-
-    return ene_tot
-
-    ######################
+def make_dipole(mol, dm_embed):
+    return scf.hf.dip_moment(mol, dm_embed, unit='Debye')
 
 
 def make_S2(mp, tmp1_bar_ab):
@@ -445,7 +768,7 @@ def make_veff(mp):
     nocc = mp.nocc
     nocca, noccb = mp.get_nocc()
     mo_coeff = mp.mo_coeff
-    mo_occ = mp._scf.mo_occ
+    mo_occ = mp.mo_occ
     naux = mp.with_df.get_naoaux()
 
     dm = mp._scf.make_rdm1(mo_coeff, mo_occ)
@@ -470,6 +793,9 @@ def make_amp(mp):
 
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
+    # print("", nocca, "", noccb)
+    # print("", nmoa, "", nmob)
+    # raise ValueError
     nvira, nvirb = nmoa - nocca, nmob - noccb
     mo_energy = mp.mo_energy
     mo_coeff = mp.mo_coeff
@@ -482,11 +808,17 @@ def make_amp(mp):
 
     tracemalloc.start()
 
-    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
+    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca, nmoa)):
         qov_a = qov_a
-    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
+    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb, nmob)):
         qov_b = qov_b
 
+    print(
+        f'DEBUG qov_a shape = {qov_a.shape}  (expected (naux, {nocca}*{nmoa - nocca}) = (naux, {nocca * (nmoa - nocca)}))'
+    )
+    print(
+        f'DEBUG qov_b shape = {qov_b.shape}  (expected (naux, {noccb}*{nmob - noccb}) = (naux, {noccb * (nmob - noccb)}))'
+    )
     print('qov_ab memory: %.1f MiB' % current_memory()[0])
 
     t1 = log.timer('making amplitude: integral transform', *t0)
@@ -542,6 +874,8 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
+    # print("nocca shape =", nocca, "noccb shape =", noccb)
+    # print("nmoa shape =", nmoa, "nmob shape =", nmob)
     nvira, nvirb = nmoa - nocca, nmob - noccb
     mo_energy = mp.mo_energy
     mo_coeff = mp.mo_coeff
@@ -562,10 +896,10 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     c1_a = numpy.zeros((nmoa, nmoa), dtype=fock_hfa.dtype)
     c1_b = numpy.zeros((nmob, nmob), dtype=fock_hfb.dtype)
 
-    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
+    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb, nmob)):
         qov_b = qov_b
 
-    for istep, qgv_a in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[0], nocca)):
+    for istep, qgv_a in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[0], nocca, nmoa)):
         for i in range(nocca):
             c1_a[:, 0:nocca] += 2.0 * lib.einsum(
                 'apb, ajb -> pj',
@@ -587,7 +921,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     print('qgv_a memory: %.1f MiB' % current_memory()[0])
     del qgv_a
 
-    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
+    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca, nmoa)):
         for i in range(nocca):
             c0 -= 1.0 * lib.einsum(
                 'ajb, ajb -> ',
@@ -603,7 +937,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
         )
 
     print('qov memory: %.1f MiB' % current_memory()[0])
-    for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb)):
+    for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb, nmob)):
         for i in range(noccb):
             c1_b[:, 0:noccb] += 2.0 * lib.einsum(
                 'apb, ajb -> pj',
@@ -636,7 +970,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
             tmp1_bar_bb[i, :, :, :],
         )
 
-    for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], nocca)):
+    for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], nocca, nmoa)):
         for i in range(nocca):
             c1_a[:, nocca:nmoa] -= 2.0 * lib.einsum(
                 'ajp, ajb -> pb',
@@ -652,7 +986,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
 
     del qog_a
 
-    for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], noccb)):
+    for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], noccb, nmob)):
         for i in range(noccb):
             c1_b[:, noccb:nmob] -= 2.0 * lib.einsum(
                 'ajp, ajb -> pb',
@@ -920,6 +1254,7 @@ def make_IPEA(mp):
     tmp2 += numpy.einsum('iab, iab -> ', tmp1_bar_ab, numpy.einsum('Lia, Lb -> iab', qov_a, qvv_b[:, 0, :]))
 
     ea_obmp2 = eV * (-mo_energy[1][L] - 1.0 * tmp2)
+    print(ea_obmp2)
     ipea.append(ea_obmp2)
     logger.info(mp, 'obmp2 lumo %8.6f (eV) ea_obmp2 %8.6f (eV)', -eV * mo_energy[1][L], ea_obmp2)
 
@@ -1542,7 +1877,10 @@ def mom_occ_(mp, occorb, setocc):
 mom_occ = mom_occ_
 
 
-class UB2PLYPDFUOBMP2(dfobmp2.DFOBMP2):
+class UB2PLYPDFUOBMP2(DFOBMP2):
+    def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
+        super().__init__(mf, frozen, mo_coeff, mo_occ)
+
     get_nocc = get_nocc
     get_nmo = get_nmo
     get_frozen_mask = get_frozen_mask
@@ -1558,7 +1896,7 @@ class UB2PLYPDFUOBMP2(dfobmp2.DFOBMP2):
     make_S2 = make_S2
     make_amp = make_amp
 
-    @lib.with_doc(obmp2_slow.OBMP2.kernel.__doc__)
+    @lib.with_doc(OBMP2_slow.kernel.__doc__)
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, _kernel=kernel):
 
         # self.ene_tot =_kernel(self, mo_energy, mo_coeff, eris, with_t2, alphaa)
@@ -1596,7 +1934,7 @@ OBMP2 = UB2PLYPDFUOBMP2
 # scf.uhf.UHF.MP2 = lib.class_as_method(MP2)
 
 
-class _ChemistsERIs(obmp2_slow._ChemistsERIs):
+class _ChemistsERIs(_ChemistsERIs):
     def __init__(self, mp, mo_coeff=None):
         if mo_coeff is None:
             mo_coeff = mp.mo_coeff
@@ -1802,33 +2140,63 @@ def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
 
 
 if __name__ == '__main__':
+    import os
+
+    # Khóa OpenBLAS/MKL lại ở 1 luồng để tránh xung đột
+    os.environ['OPENBLAS_NUM_THREADS'] = '6'
+    # os.environ['MKL_NUM_THREADS'] = '1'
+
+    # CẤP QUYỀN ĐA LUỒNG CHO PySCF ở đây (Ví dụ: dùng 8 luồng CPU)
+    os.environ['OMP_NUM_THREADS'] = '6'
+
     from pyscf import scf
     from pyscf import gto
 
     # from pyscf.mp import dfuobmp2_faster_ram , dfump2_native,ump2
     from pyscf.mp import dfump2_native, ump2
-    from . import dfuobmp2_faster_ram
+    from pycmf.OBMP import dfuobmp2
 
     mol = gto.Mole()
-    mol.atom = """O 	0.0000 	0.0000 	0.6049
-F 	0.0000 	1.1003 	-0.2688 
-F 	0.0000 	-1.1003 	-0.2688  """
+
+    mol.atom = """
+    C 0 0 0 
+    O 0 0 1.2
+    H 0 0.93 -0.58
+    H 0 -0.93 -0.58
+    """
+
     mol.spin = 0
-    mol.verbose = 3
-    mol.basis = 'ccpvdz'
+    mol.verbose = 0
+    mol.basis = 'aug-cc-pvtz'
     mol.build()
     # mf = scf.UHF(mol).run()
     mf = scf.UHF(mol).density_fit().run()
     mppp = UB2PLYPDFUOBMP2(mf)
-    mppp.alphaa = (0.53, 0)
-    dhf = mppp.run()
-    ks = dft.UKS(mol, f'0.53*HF+ 0.47*B88,LYP').density_fit().run()
-    mpp = dfuobmp2_faster_ram.DFUOBMP2(mf).run()
-    mf = scf.UHF(mol).density_fit().run()
-    mp22 = dfump2_native.DFUMP2(mf).run()
-    # print('alpha=',mppp.alpha)
-    print('udftobmp2=', dhf.ene_tot)
-    print('hf=', mf.e_tot)
-    print('dft=', ks.e_tot)
-    print('DFUOBMP2=', mpp.ene_tot)
-    print('mp2=', mp22.e_tot)
+    mppp.alphaa = (0.53, 0.39)
+    mppp.thresh = 1e-06
+    mppp.active_atoms = [1, 2, 3]
+    mppp.mu = 1e6
+    mppp.use_cl = False
+    mppp.n_shells = 1
+
+    # =========================================================================
+    # BENCHMARK
+    # =========================================================================
+    """
+    from CL_benchmark import CLBenchmark
+
+    bench = CLBenchmark(mppp, mol, mf)
+
+    # Chạy no-CL (None) và CL với n_shells = 0, 1, 2, 3
+    bench.run(n_shells_list=[None, 0, 1, 2])
+
+    # In bảng tổng hợp
+    bench.report()
+
+    # Vẽ và lưu đồ thị
+    bench.plot('/home/bghuy1309/Result/CL_benchmark/Rcl_benchmark.png')
+
+    # Lưu CSV để phân tích thêm
+    bench.save_csv('/home/bghuy1309/Result/CL_benchmark/cl_benchmark.csv')
+    # =========================================================================
+    """
