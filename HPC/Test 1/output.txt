@@ -1,0 +1,909 @@
+Using python from: /home/pnduy/.conda/envs/py310/bin/python
+pyCMF loaded from: /home/pnduy/pyCMF/src/pycmf/__init__.py
+Job started at: Sat Apr  4 07:54:15 PM +07 2026
+
+============================== MOLECULE SETUP ==============================
+
+=== Ground state (SCF + OB-MP2) ===
+> GS: Running final calculation (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899832.62 sec, wall time -1774407419.04 sec
+    CPU time for first BCH: integral transform -899831.52 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899830.40 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899829.15 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899828.07 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899826.82 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899825.71 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899824.46 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899823.33 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899822.09 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899820.94 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899819.71 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899818.55 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899817.29 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899816.10 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899814.85 sec, wall time -1774407418.99 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.47455467013168
+
+⟨d⟩ (GS)
+  Electronic dipole  d_elec = [   -0.032650      0.000000     -0.029951]    |d_elec|  = 0.04430640 a.u. = 0.11261561 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [    0.033580      0.000000     -1.097076]    |d_total| = 1.09759030 a.u. = 2.78979575 D
+
+[GS] AO = 48, MO = 48
+
+================================================================================
+ ORBITAL PROPERTIES: GS
+================================================================================
+
+ Spin: Alpha
+  MO |    Occ |   Energy (a.u.) |           Dipole <r> (x, y, z) a.u.
+--------------------------------------------------------------------------------
+   0 |   1.00 |        -20.5892 | [ -0.1180,   0.0000,   2.6885]
+   1 |   1.00 |        -20.5184 | [  0.1264,  -0.0000,  -2.8238]
+   2 |   1.00 |         -1.4058 | [  0.1409,   0.0000,   2.8510]
+   3 |   1.00 |         -1.3381 | [ -0.1603,  -0.0000,  -2.6502]
+   4 |   1.00 |         -0.7939 | [  0.2160,  -0.0000,   2.9354]
+   5 |   1.00 |         -0.7346 | [ -0.2293,   0.0000,  -2.2476]
+   6 |   1.00 |         -0.6601 | [ -0.1861,   0.0000,   2.1508]
+   7 |   1.00 |         -0.5986 | [  0.0805,   0.0000,  -1.0630]
+   8 |   1.00 |         -0.5757 | [  0.0280,   0.0000,   0.9416]
+   9 |   1.00 |         -0.5180 | [  0.0857,  -0.0000,  -2.8005]
+  10 |   0.00 |          0.1734 | [  0.7587,  -0.0000,   2.8902]
+  11 |   0.00 |          0.2423 | [ -1.6844,  -0.0000,  -3.0509]
+  12 |   0.00 |          0.2522 | [  1.0020,   0.0000,   3.5205]
+  13 |   0.00 |          0.3969 | [ -0.2521,   0.0000,  -0.8074]
+  14 |   0.00 |          0.7744 | [  0.4032,   0.0000,   3.0378]
+  15 |   0.00 |          0.8236 | [ -0.1879,  -0.0000,  -1.7366]
+  16 |   0.00 |          0.8563 | [  0.6963,  -0.0000,   2.8993]
+  17 |   0.00 |          0.8810 | [ -0.9566,   0.0000,  -2.3609]
+  18 |   0.00 |          1.1502 | [ -0.1269,   0.0000,   1.6185]
+  19 |   0.00 |          1.2193 | [ -0.0592,  -0.0000,   2.1487]
+  20 |   0.00 |          1.2202 | [  0.1589,   0.0000,  -1.9964]
+  21 |   0.00 |          1.2646 | [  0.0863,  -0.0000,  -2.4169]
+  22 |   0.00 |          1.2875 | [  0.2238,   0.0000,   2.5190]
+  23 |   0.00 |          1.3292 | [  0.0035,  -0.0000,  -2.5472]
+  24 |   0.00 |          1.4536 | [  0.6830,  -0.0000,   3.2559]
+  25 |   0.00 |          1.4657 | [ -0.1090,  -0.0000,   2.3018]
+  26 |   0.00 |          1.5031 | [ -0.2314,   0.0000,  -2.1401]
+  27 |   0.00 |          1.5232 | [ -0.7904,  -0.0000,  -2.1993]
+  28 |   0.00 |          1.6984 | [  0.3322,   0.0000,   2.3878]
+  29 |   0.00 |          1.7123 | [ -0.4414,  -0.0000,  -2.0423]
+  30 |   0.00 |          1.8182 | [ -0.0898,   0.0000,   1.7563]
+  31 |   0.00 |          1.9217 | [  0.6009,   0.0000,   2.9951]
+  32 |   0.00 |          1.9724 | [ -0.3183,   0.0000,  -2.0456]
+  33 |   0.00 |          2.0510 | [ -0.1936,  -0.0000,  -1.7435]
+  34 |   0.00 |          2.4271 | [  0.5844,  -0.0000,   3.2105]
+  35 |   0.00 |          2.4583 | [  0.4842,   0.0000,   2.6643]
+  36 |   0.00 |          2.5063 | [ -1.0766,  -0.0000,  -2.9053]
+  37 |   0.00 |          2.7136 | [ -0.0908,   0.0000,  -0.7296]
+  38 |   0.00 |          3.2533 | [ -0.0143,   0.0000,   2.7344]
+  39 |   0.00 |          3.3021 | [ -0.0053,  -0.0000,   1.5391]
+  40 |   0.00 |          3.3237 | [ -0.0035,   0.0000,  -1.6387]
+  41 |   0.00 |          3.3757 | [  0.0238,   0.0000,  -2.6237]
+  42 |   0.00 |          3.4876 | [ -0.0062,   0.0000,   2.7340]
+  43 |   0.00 |          3.5446 | [  0.0177,  -0.0000,  -2.6654]
+  44 |   0.00 |          3.8474 | [  0.0593,  -0.0000,   2.7620]
+  45 |   0.00 |          3.9100 | [ -0.0421,   0.0000,  -2.6949]
+  46 |   0.00 |          4.1223 | [ -0.0694,   0.0000,   2.7030]
+  47 |   0.00 |          4.1909 | [  0.0721,   0.0000,  -2.7711]
+
+ Spin: Beta
+  MO |    Occ |   Energy (a.u.) |           Dipole <r> (x, y, z) a.u.
+--------------------------------------------------------------------------------
+   0 |   1.00 |        -20.5892 | [ -0.1180,   0.0000,   2.6885]
+   1 |   1.00 |        -20.5184 | [  0.1264,  -0.0000,  -2.8238]
+   2 |   1.00 |         -1.4058 | [  0.1409,  -0.0000,   2.8510]
+   3 |   1.00 |         -1.3381 | [ -0.1603,   0.0000,  -2.6502]
+   4 |   1.00 |         -0.7939 | [  0.2160,   0.0000,   2.9354]
+   5 |   1.00 |         -0.7346 | [ -0.2293,  -0.0000,  -2.2476]
+   6 |   1.00 |         -0.6601 | [ -0.1861,  -0.0000,   2.1508]
+   7 |   1.00 |         -0.5986 | [  0.0805,  -0.0000,  -1.0630]
+   8 |   1.00 |         -0.5757 | [  0.0280,  -0.0000,   0.9416]
+   9 |   1.00 |         -0.5180 | [  0.0857,   0.0000,  -2.8005]
+  10 |   0.00 |          0.1734 | [  0.7587,  -0.0000,   2.8902]
+  11 |   0.00 |          0.2423 | [ -1.6844,  -0.0000,  -3.0509]
+  12 |   0.00 |          0.2522 | [  1.0020,   0.0000,   3.5205]
+  13 |   0.00 |          0.3969 | [ -0.2521,   0.0000,  -0.8074]
+  14 |   0.00 |          0.7744 | [  0.4032,  -0.0000,   3.0378]
+  15 |   0.00 |          0.8236 | [ -0.1879,   0.0000,  -1.7366]
+  16 |   0.00 |          0.8563 | [  0.6963,   0.0000,   2.8993]
+  17 |   0.00 |          0.8810 | [ -0.9566,  -0.0000,  -2.3609]
+  18 |   0.00 |          1.1502 | [ -0.1269,  -0.0000,   1.6185]
+  19 |   0.00 |          1.2193 | [ -0.0592,   0.0000,   2.1487]
+  20 |   0.00 |          1.2202 | [  0.1589,  -0.0000,  -1.9964]
+  21 |   0.00 |          1.2646 | [  0.0863,   0.0000,  -2.4169]
+  22 |   0.00 |          1.2875 | [  0.2238,  -0.0000,   2.5190]
+  23 |   0.00 |          1.3292 | [  0.0035,  -0.0000,  -2.5472]
+  24 |   0.00 |          1.4536 | [  0.6830,   0.0000,   3.2559]
+  25 |   0.00 |          1.4657 | [ -0.1090,  -0.0000,   2.3018]
+  26 |   0.00 |          1.5031 | [ -0.2314,  -0.0000,  -2.1401]
+  27 |   0.00 |          1.5232 | [ -0.7904,  -0.0000,  -2.1993]
+  28 |   0.00 |          1.6984 | [  0.3322,   0.0000,   2.3878]
+  29 |   0.00 |          1.7123 | [ -0.4414,   0.0000,  -2.0423]
+  30 |   0.00 |          1.8182 | [ -0.0898,   0.0000,   1.7563]
+  31 |   0.00 |          1.9217 | [  0.6009,   0.0000,   2.9951]
+  32 |   0.00 |          1.9724 | [ -0.3183,   0.0000,  -2.0456]
+  33 |   0.00 |          2.0510 | [ -0.1936,  -0.0000,  -1.7435]
+  34 |   0.00 |          2.4271 | [  0.5844,  -0.0000,   3.2105]
+  35 |   0.00 |          2.4583 | [  0.4842,   0.0000,   2.6643]
+  36 |   0.00 |          2.5063 | [ -1.0766,  -0.0000,  -2.9053]
+  37 |   0.00 |          2.7136 | [ -0.0908,   0.0000,  -0.7296]
+  38 |   0.00 |          3.2533 | [ -0.0143,   0.0000,   2.7344]
+  39 |   0.00 |          3.3021 | [ -0.0053,  -0.0000,   1.5391]
+  40 |   0.00 |          3.3237 | [ -0.0035,   0.0000,  -1.6387]
+  41 |   0.00 |          3.3757 | [  0.0238,   0.0000,  -2.6237]
+  42 |   0.00 |          3.4876 | [ -0.0062,   0.0000,   2.7340]
+  43 |   0.00 |          3.5446 | [  0.0177,  -0.0000,  -2.6654]
+  44 |   0.00 |          3.8474 | [  0.0593,   0.0000,   2.7620]
+  45 |   0.00 |          3.9100 | [ -0.0421,   0.0000,  -2.6949]
+  46 |   0.00 |          4.1223 | [ -0.0694,  -0.0000,   2.7030]
+  47 |   0.00 |          4.1909 | [  0.0721,   0.0000,  -2.7711]
+
+================================================================================
+COMBINED (AVERAGED) PROPERTIES: GS
+================================================================================
+  MO |    Occ |      Avg Energy |            Avg Dipole <r> (x, y, z)
+--------------------------------------------------------------------------------
+   0 |   2.00 |        -20.5892 | [ -0.1180,   0.0000,   2.6885]
+   1 |   2.00 |        -20.5184 | [  0.1264,  -0.0000,  -2.8238]
+   2 |   2.00 |         -1.4058 | [  0.1409,   0.0000,   2.8510]
+   3 |   2.00 |         -1.3381 | [ -0.1603,   0.0000,  -2.6502]
+   4 |   2.00 |         -0.7939 | [  0.2160,   0.0000,   2.9354]
+   5 |   2.00 |         -0.7346 | [ -0.2293,  -0.0000,  -2.2476]
+   6 |   2.00 |         -0.6601 | [ -0.1861,  -0.0000,   2.1508]
+   7 |   2.00 |         -0.5986 | [  0.0805,  -0.0000,  -1.0630]
+   8 |   2.00 |         -0.5757 | [  0.0280,  -0.0000,   0.9416]
+   9 |   2.00 |         -0.5180 | [  0.0857,   0.0000,  -2.8005]
+  10 |   0.00 |          0.1734 | [  0.7587,  -0.0000,   2.8902]
+  11 |   0.00 |          0.2423 | [ -1.6844,  -0.0000,  -3.0509]
+  12 |   0.00 |          0.2522 | [  1.0020,   0.0000,   3.5205]
+  13 |   0.00 |          0.3969 | [ -0.2521,   0.0000,  -0.8074]
+  14 |   0.00 |          0.7744 | [  0.4032,  -0.0000,   3.0378]
+  15 |   0.00 |          0.8236 | [ -0.1879,   0.0000,  -1.7366]
+  16 |   0.00 |          0.8563 | [  0.6963,   0.0000,   2.8993]
+  17 |   0.00 |          0.8810 | [ -0.9566,   0.0000,  -2.3609]
+  18 |   0.00 |          1.1502 | [ -0.1269,  -0.0000,   1.6185]
+  19 |   0.00 |          1.2193 | [ -0.0592,   0.0000,   2.1487]
+  20 |   0.00 |          1.2202 | [  0.1589,  -0.0000,  -1.9964]
+  21 |   0.00 |          1.2646 | [  0.0863,   0.0000,  -2.4169]
+  22 |   0.00 |          1.2875 | [  0.2238,  -0.0000,   2.5190]
+  23 |   0.00 |          1.3292 | [  0.0035,  -0.0000,  -2.5472]
+  24 |   0.00 |          1.4536 | [  0.6830,  -0.0000,   3.2559]
+  25 |   0.00 |          1.4657 | [ -0.1090,  -0.0000,   2.3018]
+  26 |   0.00 |          1.5031 | [ -0.2314,  -0.0000,  -2.1401]
+  27 |   0.00 |          1.5232 | [ -0.7904,  -0.0000,  -2.1993]
+  28 |   0.00 |          1.6984 | [  0.3322,   0.0000,   2.3878]
+  29 |   0.00 |          1.7123 | [ -0.4414,  -0.0000,  -2.0423]
+  30 |   0.00 |          1.8182 | [ -0.0898,   0.0000,   1.7563]
+  31 |   0.00 |          1.9217 | [  0.6009,   0.0000,   2.9951]
+  32 |   0.00 |          1.9724 | [ -0.3183,   0.0000,  -2.0456]
+  33 |   0.00 |          2.0510 | [ -0.1936,  -0.0000,  -1.7435]
+  34 |   0.00 |          2.4271 | [  0.5844,  -0.0000,   3.2105]
+  35 |   0.00 |          2.4583 | [  0.4842,   0.0000,   2.6643]
+  36 |   0.00 |          2.5063 | [ -1.0766,  -0.0000,  -2.9053]
+  37 |   0.00 |          2.7136 | [ -0.0908,   0.0000,  -0.7296]
+  38 |   0.00 |          3.2533 | [ -0.0143,   0.0000,   2.7344]
+  39 |   0.00 |          3.3021 | [ -0.0053,  -0.0000,   1.5391]
+  40 |   0.00 |          3.3237 | [ -0.0035,   0.0000,  -1.6387]
+  41 |   0.00 |          3.3757 | [  0.0238,   0.0000,  -2.6237]
+  42 |   0.00 |          3.4876 | [ -0.0062,   0.0000,   2.7340]
+  43 |   0.00 |          3.5446 | [  0.0177,  -0.0000,  -2.6654]
+  44 |   0.00 |          3.8474 | [  0.0593,   0.0000,   2.7620]
+  45 |   0.00 |          3.9100 | [ -0.0421,   0.0000,  -2.6949]
+  46 |   0.00 |          4.1223 | [ -0.0694,  -0.0000,   2.7030]
+  47 |   0.00 |          4.1909 | [  0.0721,   0.0000,  -2.7711]
+
+
+
+HF has converged
+HF energy =  -151.79727204011763
+MP2 energy =  -152.1687210667639
+
+=== Excited states (MOM + OB-MP2) ===
+
+--- Processing ES1: Hole 9 -> Elec 11 ---
+  -> ES1: Final optimization (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899810.25 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899808.99 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899807.90 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899806.62 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899805.53 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899804.27 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899803.14 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899801.90 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899800.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899799.52 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899798.36 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899797.11 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899795.95 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899794.68 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899793.50 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899792.25 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899791.03 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899789.79 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899788.57 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899787.31 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899786.07 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899784.82 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899783.57 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899782.33 sec, wall time -1774407418.98 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.17119582432477
+
+⟨d⟩ (ES1)
+  Electronic dipole  d_elec = [   -1.317716     -0.000000     -0.270320]    |d_elec|  = 1.34515733 a.u. = 3.41904826 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [   -1.251486     -0.000000     -1.337445]    |d_total| = 1.83165958 a.u. = 4.65561340 D
+
+
+
+
+
+
+
+HF has converged
+HF energy =  -151.78794920510416
+MP2 energy =  -152.16190829971342
+
+=== Excited states (MOM + OB-MP2) ===
+
+--- Processing ES2: Hole 8 -> Elec 10 ---
+  -> ES2: Final optimization (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899776.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899775.53 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899774.42 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899773.17 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899772.07 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899770.82 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899769.72 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899768.41 sec, wall time -1774407418.98 sec
+
+    CPU time for making amplitude: integral transform -899767.23 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899766.04 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899764.96 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899763.60 sec, wall time -1774407418.96 sec
+
+    CPU time for making amplitude: integral transform -899762.54 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899761.34 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899760.20 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899759.01 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899757.86 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899756.66 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899755.49 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899754.30 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899753.13 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899751.93 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899750.73 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899749.54 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899748.34 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899747.14 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899745.91 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899744.73 sec, wall time -1774407418.99 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.1638451450165
+
+⟨d⟩ (ES2)
+  Electronic dipole  d_elec = [    0.749714     -0.000000      0.705100]    |d_elec|  = 1.02919251 a.u. = 2.61594595 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [    0.815944     -0.000000     -0.362025]    |d_total| = 0.89265171 a.u. = 2.26889391 D
+
+
+
+
+HF has converged
+HF energy =  -151.70948925333664
+MP2 energy =  -152.12452123998222
+
+=== Excited states (MOM + OB-MP2) ===
+
+--- Processing ES3: Hole 9 -> Elec 10 ---
+  -> ES3: Final optimization (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899739.69 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899738.49 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899737.43 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899736.23 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899735.19 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899733.99 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899732.94 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899731.72 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899730.65 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899729.46 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899728.38 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899727.16 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899726.06 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899724.86 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899723.73 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899722.52 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899721.36 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899720.16 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899718.97 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899717.79 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899716.61 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899715.41 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899714.21 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899713.02 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899711.82 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899710.60 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899709.35 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899708.15 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899706.92 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899705.70 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899704.44 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899703.24 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899701.97 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899700.76 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899699.48 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899698.27 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899696.97 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899695.77 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899694.42 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899693.22 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899691.86 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899690.67 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899689.28 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899688.09 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899686.66 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899685.48 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899684.05 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899682.85 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899681.36 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899680.19 sec, wall time -1774407418.99 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.09327694241063
+
+⟨d⟩ (ES3)
+  Electronic dipole  d_elec = [    0.108305     -0.000031     -0.566614]    |d_elec|  = 0.57687241 a.u. = 1.46626315 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [    0.174536     -0.000031     -1.633740]    |d_total| = 1.64303640 a.u. = 4.17618120 D
+
+
+
+
+HF has converged
+HF energy =  -151.70997443914453
+MP2 energy =  -152.08102027064487
+
+=== Excited states (MOM + OB-MP2) ===
+
+--- Processing ES4: Hole 8 -> Elec 12 ---
+  -> ES4: Final optimization (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899675.24 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899674.05 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899673.00 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899671.80 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899670.76 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899669.57 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899668.50 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899667.29 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899666.22 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899665.03 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899663.89 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899662.68 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899661.58 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899660.39 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899659.26 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899658.05 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899656.89 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899655.70 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899654.54 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899653.35 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899652.18 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899650.98 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899649.79 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899648.60 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899647.40 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899646.20 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899644.99 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899643.80 sec, wall time -1774407418.99 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.08278935334133
+
+⟨d⟩ (ES4)
+  Electronic dipole  d_elec = [    0.765263      0.000000      0.786572]    |d_elec|  = 1.09741678 a.u. = 2.78935471 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [    0.831493      0.000000     -0.280554]    |d_total| = 0.87754859 a.u. = 2.23050561 D
+
+
+
+
+HF has converged
+HF energy =  -151.63264227580046
+MP2 energy =  -152.04799041579233
+
+=== Excited states (MOM + OB-MP2) ===
+
+--- Processing ES5: Hole 7 -> Elec 10 ---
+  -> ES5: Final optimization (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899637.74 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899636.55 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899635.51 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899634.31 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899633.28 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899632.08 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899631.03 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899629.82 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899628.75 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899627.56 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899626.48 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899625.26 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899624.15 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899622.96 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899621.84 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899620.63 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899619.47 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899618.28 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899617.11 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899615.92 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899614.75 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899613.54 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899612.35 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899611.17 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899609.96 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899608.78 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899607.57 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899606.36 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899605.13 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899603.95 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899602.70 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899601.50 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899600.23 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899599.06 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899597.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899596.58 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899595.27 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899594.09 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899592.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899591.57 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899590.23 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899589.04 sec, wall time -1774407419.00 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.07741392983823
+
+⟨d⟩ (ES5)
+  Electronic dipole  d_elec = [    0.113437      0.000000     -0.212145]    |d_elec|  = 0.24056904 a.u. = 0.61146540 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [    0.179667      0.000000     -1.279271]    |d_total| = 1.29182585 a.u. = 3.28349318 D
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+HF has converged
+HF energy =  -151.6890111528745
+MP2 energy =  -152.10416313098176
+
+=== Excited states (MOM + OB-MP2) ===
+
+--- Processing ES6: Hole 6 -> Elec 10 ---
+  -> ES6: Final optimization (css=1, cos=1.0)...
+[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+ 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+    CPU time for making amplitude: integral transform -899581.03 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899579.82 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899578.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899577.58 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899576.54 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899575.36 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899574.31 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899573.10 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899572.04 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899570.85 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899569.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899568.57 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899567.47 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899566.28 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899565.17 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899563.95 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899562.80 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899561.62 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899560.46 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899559.25 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899558.08 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899556.90 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899555.72 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899554.51 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899553.31 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899552.13 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899550.92 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899549.71 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899548.48 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899547.29 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899546.04 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899544.85 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899543.58 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899542.39 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899541.11 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899539.92 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899538.62 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899537.43 sec, wall time -1774407419.00 sec
+
+    CPU time for making amplitude: integral transform -899536.10 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899534.91 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899533.57 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899532.37 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899531.01 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899529.82 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899528.42 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899527.21 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899525.80 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899524.59 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899523.14 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899521.95 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899520.45 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899519.28 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899517.77 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899516.55 sec, wall time -1774407418.99 sec
+
+    CPU time for making amplitude: integral transform -899515.00 sec, wall time -1774407419.05 sec
+    CPU time for first BCH: integral transform -899513.83 sec, wall time -1774407419.00 sec
+
+
+UOB-MP2 has converged
+UOB-MP2 energy =  -152.07484390602366
+
+⟨d⟩ (ES6)
+  Electronic dipole  d_elec = [    0.789637      0.000000      0.890790]    |d_elec|  = 1.19039226 a.u. = 3.02567477 D
+  Nuclear dipole     d_nuc  = [    0.066230      0.000000     -1.067126]    |d_nucl|  = 1.06917890 a.u. = 2.71758119 D
+  Total dipole       d_tot  = [    0.855867      0.000000     -0.176335]    |d_total| = 0.87384354 a.u. = 2.22108831 D
+
+
+==================== EXPORTING MOLECULAR ORBITALS ====================
+Exporting GS with active orbitals: [6, 7, 8, 9, 10, 11, 12]
+
+--- Exporting Cubes: 02-H2O-H2O | GS ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+Exporting ES1 with orbitals: [9, 11]
+
+--- Exporting Cubes: 02-H2O-H2O | ES1 ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+Exporting ES2 with orbitals: [8, 10]
+
+--- Exporting Cubes: 02-H2O-H2O | ES2 ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+Exporting ES3 with orbitals: [9, 10]
+
+--- Exporting Cubes: 02-H2O-H2O | ES3 ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+Exporting ES4 with orbitals: [8, 12]
+
+--- Exporting Cubes: 02-H2O-H2O | ES4 ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+Exporting ES5 with orbitals: [7, 10]
+
+--- Exporting Cubes: 02-H2O-H2O | ES5 ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+Exporting ES6 with orbitals: [6, 10]
+
+--- Exporting Cubes: 02-H2O-H2O | ES6 ---
+ Processing Spin: Alpha...
+ Processing Spin: Beta...
+
+==================== ENERGIES & DIPOLES ====================
+GS  Energy: -152.47455467 a.u. | Dipole Total: 1.0976 a.u.
+------------------------------------------------------------
+[ES1] Hole 9 -> Elec 11
+      Energy  : -152.17119582 a.u. (ΔE =     8.2548 eV)
+      Dipole  : 1.8317 a.u.
+------------------------------------------------------------
+[ES2] Hole 8 -> Elec 10
+      Energy  : -152.16384515 a.u. (ΔE =     8.4548 eV)
+      Dipole  : 0.8927 a.u.
+------------------------------------------------------------
+[ES3] Hole 9 -> Elec 10
+      Energy  : -152.09327694 a.u. (ΔE =    10.3751 eV)
+      Dipole  : 1.6430 a.u.
+------------------------------------------------------------
+[ES4] Hole 8 -> Elec 12
+      Energy  : -152.08278935 a.u. (ΔE =    10.6605 eV)
+      Dipole  : 0.8775 a.u.
+------------------------------------------------------------
+[ES5] Hole 7 -> Elec 10
+      Energy  : -152.07741393 a.u. (ΔE =    10.8068 eV)
+      Dipole  : 1.2918 a.u.
+------------------------------------------------------------
+[ES6] Hole 6 -> Elec 10
+      Energy  : -152.07484391 a.u. (ΔE =    10.8767 eV)
+      Dipole  : 0.8738 a.u.
+------------------------------------------------------------
+
+======================================================================
+ TRANSITION: GS <- ES1
+======================================================================
+Overlap Alpha (Det)          :  0.98537742 (DML)
+Overlap Beta (Det)           : -0.00000006 (GSC)
+sa_spectator                 :  0.99327421
+sb_spectator                 :  0.99736773
+Total Wavefunction Overlap   : -0.00000006
+Max values of Transition Density matrices:
+  max|P_trans_a| =   1.00276126
+  max|P_trans_b| =   0.68782737
+
+Transition dipole components (a.u. - unscaled):
+  Electronic contribution: [-0.000000  0.227061  0.000000]
+  Nuclear contribution:    [-0.000000  -0.000000  0.000000]
+
+Final Transition dipole (a.u.) [Scaled for Singlet]:
+  μ_x,y,z = [   -0.000000      0.321113      0.000001]
+  |μ|     = 0.32111252
+
+Oscillator strength (length gauge):
+ ΔE (ES1-GS)  =  0.30335885 a.u.   (8.25482132 eV)
+ |μ|^2        =  0.10311325  a.u.
+ f_length     =  0.02085354
+
+======================================================================
+ TRANSITION: GS <- ES2
+======================================================================
+Overlap Alpha (Det)          :  0.98527502 (DML)
+Overlap Beta (Det)           :  0.00004603 (GSC)
+sa_spectator                 :  0.99103701
+sb_spectator                 :  0.99760648
+Total Wavefunction Overlap   :  0.00004535
+Max values of Transition Density matrices:
+  max|P_trans_a| =   1.00260714
+  max|P_trans_b| =   0.40974639
+
+Transition dipole components (a.u. - unscaled):
+  Electronic contribution: [0.140346  0.000000  -0.244390]
+  Nuclear contribution:    [0.000003  0.000000  -0.000048]
+
+Final Transition dipole (a.u.) [Scaled for Singlet]:
+  μ_x,y,z = [    0.198484      0.000000     -0.345688]
+  |μ|     = 0.39861721
+
+Oscillator strength (length gauge):
+ ΔE (ES2-GS)  =  0.31070953 a.u.   (8.45484366 eV)
+ |μ|^2        =  0.15889568  a.u.
+ f_length     =  0.03291360
+
+======================================================================
+ TRANSITION: GS <- ES3
+======================================================================
+Overlap Alpha (Det)          : -0.98046229 (DML)
+Overlap Beta (Det)           :  0.98081346 (DML)
+sa_spectator                 :  0.99037893
+sb_spectator                 :  0.98970699
+Total Wavefunction Overlap   : -0.96165061
+Max values of Transition Density matrices:
+  max|P_trans_a| =   1.00269271
+  max|P_trans_b| =   1.00223813
+
+Transition dipole components (a.u. - unscaled):
+  Electronic contribution: [-0.123423  -0.090399  0.616943]
+  Nuclear contribution:    [-0.063690  -0.000000  1.026202]
+
+Final Transition dipole (a.u.) [Scaled for Singlet]:
+  μ_x,y,z = [   -0.264619     -0.127844      2.323759]
+  |μ|     = 2.34226837
+
+Oscillator strength (length gauge):
+ ΔE (ES3-GS)  =  0.38127773 a.u.   (10.37510381 eV)
+ |μ|^2        =  5.48622109  a.u.
+ f_length     =  1.39451594
+
+======================================================================
+ TRANSITION: GS <- ES4
+======================================================================
+Overlap Alpha (Det)          : -0.98672075 (DML)
+Overlap Beta (Det)           : -0.00000030 (GSC)
+sa_spectator                 :  0.99168775
+sb_spectator                 :  0.99764826
+Total Wavefunction Overlap   :  0.00000029
+Max values of Transition Density matrices:
+  max|P_trans_a| =   1.00257682
+  max|P_trans_b| =   0.60026891
+
+Transition dipole components (a.u. - unscaled):
+  Electronic contribution: [-0.000000  -0.001791  0.000000]
+  Nuclear contribution:    [0.000000  0.000000  -0.000000]
+
+Final Transition dipole (a.u.) [Scaled for Singlet]:
+  μ_x,y,z = [   -0.000000     -0.002532      0.000000]
+  |μ|     = 0.00253246
+
+Oscillator strength (length gauge):
+ ΔE (ES4-GS)  =  0.39176532 a.u.   (10.66048588 eV)
+ |μ|^2        =  0.00000641  a.u.
+ f_length     =  0.00000168
+
+======================================================================
+ TRANSITION: GS <- ES5
+======================================================================
+Overlap Alpha (Det)          :  0.99167871 (DML)
+Overlap Beta (Det)           : -0.99324064 (DML)
+sa_spectator                 :  0.99548528
+sb_spectator                 :  0.99676438
+Total Wavefunction Overlap   : -0.98497559
+Max values of Transition Density matrices:
+  max|P_trans_a| =   1.00258707
+  max|P_trans_b| =   1.00213618
+
+Transition dipole components (a.u. - unscaled):
+  Electronic contribution: [-0.030397  -0.034863  0.381686]
+  Nuclear contribution:    [-0.065235  -0.000000  1.051093]
+
+Final Transition dipole (a.u.) [Scaled for Singlet]:
+  μ_x,y,z = [   -0.135244     -0.049304      2.026255]
+  |μ|     = 2.03136156
+
+Oscillator strength (length gauge):
+ ΔE (ES5-GS)  =  0.39714074 a.u.   (10.80675872 eV)
+ |μ|^2        =  4.12642980  a.u.
+ f_length     =  1.09251559
+
+======================================================================
+ TRANSITION: GS <- ES6
+======================================================================
+Overlap Alpha (Det)          : -0.98725759 (DML)
+Overlap Beta (Det)           : -0.00167549 (GSC)
+sa_spectator                 :  0.99286123
+sb_spectator                 :  0.99744001
+Total Wavefunction Overlap   :  0.00165414
+Max values of Transition Density matrices:
+  max|P_trans_a| =   1.00253588
+  max|P_trans_b| =   0.36326013
+
+Transition dipole components (a.u. - unscaled):
+  Electronic contribution: [0.375199  0.000000  0.378951]
+  Nuclear contribution:    [0.000110  0.000000  -0.001765]
+
+Final Transition dipole (a.u.) [Scaled for Singlet]:
+  μ_x,y,z = [    0.530766      0.000000      0.533422]
+  |μ|     = 0.75249672
+
+Oscillator strength (length gauge):
+ ΔE (ES6-GS)  =  0.39971076 a.u.   (10.87669268 eV)
+ |μ|^2        =  0.56625131  a.u.
+ f_length     =  0.15089116
+Job completed at: Sat Apr  4 07:54:50 PM +07 2026
