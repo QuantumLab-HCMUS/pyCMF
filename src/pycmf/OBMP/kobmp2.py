@@ -107,7 +107,8 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2, verbose=logger.NOTE
             mp.ampf = 1.0
         #####################
         ### OBMP2
-        c0_1st, c1 = first_BCH(mp, mo_energy, mo_coeff, fock_hf)
+        # return c0, c1, tmp1, tmp1_bar
+        c0_1st, c1, tmp1, tmp1_bar = first_BCH(mp, mo_energy, mo_coeff, fock_hf)
         for k in range(nkpts):
             fock[k] += c1[k] + c1[k].T.conj()
 
@@ -156,7 +157,7 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2, verbose=logger.NOTE
     print('EA_c2 = ', EA[1] - mo_energy[nk][nocc + 1])
     print('IP_v3 = ', IP[2] - mo_energy[nk][nocc - 3])
     print('EA_c3 = ', EA[2] - mo_energy[nk][nocc + 2])
-    return ene_tot, mo_energy
+    return ene_tot, mo_energy, mo_coeff, tmp1, tmp1_bar, c1, fock_hf, c0_1st
 
 
 #################################################################################################################
@@ -339,7 +340,7 @@ def first_BCH(mp, mo_energy, mo_coeff, fock_hf):
 
     c0 /= nkpts
     c1 += c2
-    return c0, c1
+    return c0, c1, tmp1, tmp1_bar
 
 
 def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
@@ -406,35 +407,35 @@ def make_IPEA(mp, mo_energy, mo_coeff, fock_hf):
                             h2mo_ovoo[ki, ka][:, :, :, nocc - 1],
                         ).real
                     )
-                    IP_v2 += (
-                        2
-                        * numpy.einsum(
-                            'iaj, iaj -> ',
-                            tmp1_bar_iajh[ki, ka][:, :, :, nocc - 2],
-                            h2mo_ovoo[ki, ka][:, :, :, nocc - 2],
-                        ).real
-                    )
-                    IP_v3 += (
-                        2
-                        * numpy.einsum(
-                            'iaj, iaj -> ',
-                            tmp1_bar_iajh[ki, ka][:, :, :, nocc - 3],
-                            h2mo_ovoo[ki, ka][:, :, :, nocc - 3],
-                        ).real
-                    )
+                    # IP_v2 += (
+                    #    2
+                    #    * numpy.einsum(
+                    #        'iaj, iaj -> ',
+                    #        tmp1_bar_iajh[ki, ka][:, :, :, nocc - 2],
+                    #        h2mo_ovoo[ki, ka][:, :, :, nocc - 2],
+                    #    ).real
+                    # )
+                    # IP_v3 += (
+                    #    2
+                    #    * numpy.einsum(
+                    #        'iaj, iaj -> ',
+                    #        tmp1_bar_iajh[ki, ka][:, :, :, nocc - 3],
+                    #        h2mo_ovoo[ki, ka][:, :, :, nocc - 3],
+                    #    ).real
+                    # )
                 if kj == nk:
                     w_ialb = h2mo_ovvv[ki, ka] - 0.5 * h2mo_ovvv[ki, kb].transpose(0, 3, 2, 1)
                     tmp1_bar_ialb = (w_ialb / e_ialb).conj()
                     EA_c1 -= (
                         2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 0, :], h2mo_ovvv[ki, ka][:, :, 0, :]).real
                     )
-                    EA_c2 -= (
-                        2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 1, :], h2mo_ovvv[ki, ka][:, :, 1, :]).real
-                    )
-                    EA_c3 -= (
-                        2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 2, :], h2mo_ovvv[ki, ka][:, :, 2, :]).real
-                    )
-
+                    # EA_c2 -= (
+                    #    2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 1, :], h2mo_ovvv[ki, ka][:, :, 1, :]).real
+                    # )
+                    # EA_c3 -= (
+                    #    2 * numpy.einsum('iab, iab -> ', tmp1_bar_ialb[:, :, 2, :], h2mo_ovvv[ki, ka][:, :, 2, :]).real
+                    # )
+    IP_v2, IP_v3, EA_c2, EA_c3 = 0, 0, 0, 0
     IP = [IP_v1, IP_v2, IP_v3]
     EA = [EA_c1, EA_c2, EA_c3]
 
@@ -922,6 +923,11 @@ class OBMP2(lib.StreamObject):
         self._nmo = None
         self.e_corr = None
         self.t2 = None
+        self.tmp1 = None
+        self.tmp1_bar = None
+        self.c1 = None
+        self.fock_hf = None
+        self.c0_1st = None
         self._keys = set(self.__dict__.keys())
 
     @property
@@ -986,8 +992,27 @@ class OBMP2(lib.StreamObject):
         # self.dump_flags()
         # _kern(self, mo_energy, mo_coeff, eris, with_t2, self.verbose)
         self.ene_tot, self.mo_energy = _kern(self, mo_energy, mo_coeff, mo_occ, with_t2, self.verbose)
+        (
+            self.ene_tot,
+            self.mo_energy,
+            self.mo_coeff,
+            self.tmp1,
+            self.tmp1_bar,
+            self.c1,
+            self.fock_hf,
+            self.c0_1st,
+        ) = _kern(self, mo_energy, mo_coeff, mo_occ, with_t2, self.verbose)
         self._finalize()
-        return self.ene_tot, self.mo_energy
+        return (
+            self.ene_tot,
+            self.mo_energy,
+            self.mo_coeff,
+            self.tmp1,
+            self.tmp1_bar,
+            self.c1,
+            self.fock_hf,
+            self.c0_1st,
+        )
 
     def _finalize(self):
         """Hook for dumping results and clearing up the object."""
