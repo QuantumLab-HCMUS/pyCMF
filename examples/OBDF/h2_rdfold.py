@@ -58,6 +58,7 @@ myuhf = scf.UHF(mol).run()
 robmp = OBMP2(myrhf)
 robmp.second_order = True
 robmp.kernel()
+print("Xin chào các bạn")
 
 # ===== 4. Sort MO theo caslist (restricted) =====
 mycas = mcscf.CASCI(myrhf, ncas=nact[0], nelecas=sum(num_particles))
