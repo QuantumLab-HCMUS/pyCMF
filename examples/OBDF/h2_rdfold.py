@@ -8,7 +8,7 @@ from pyscf import fci
 from pyscf.fci import direct_uhf, direct_spin1
 import numpy as np
 
-
+"""
 # ===== 1. Khai báo input: H2 CAS(2,2) =====
 basis = 'ccpvdz'
 nocc_inact = [0, 0]  # không có orbital core đóng băng
@@ -24,7 +24,7 @@ mol.atom = [
     ['H', (0.0, 0.0, 0.0)],
     ['H', (0.0, 0.0, 0.74)],  # khoảng cách cân bằng ~0.74 Å
 ]
-
+"""
 
 """
 # ===== 1. Khai báo input =====
@@ -43,6 +43,22 @@ mol.atom = [
     ['N', (0.0, 0.0, 1.1)] #1.1
 ]
 """
+
+# ===== 1. Khai báo input: H2 CAS(2,2) =====
+basis = '6-31g'
+nocc_inact = [0, 0]  # không có orbital core đóng băng
+nact = [4, 4]  # 2 orbital active (σ, σ*)
+num_particles = [1, 1]  # 2 electron: 1 alpha, 1 beta
+caslist_a = [1, 2, 3, 4]  # active orbital index (0-based)
+caslist_b = caslist_a
+caslist = [caslist_a, caslist_b]
+
+# Tạo phân tử H2
+mol = gto.Mole()
+mol.atom = [
+    ['H', (1.5, 1.5, 1)],
+    ['H', (1.5, 1.5, 2)],  # khoảng cách cân bằng ~0.74 Å
+]
 
 mol.basis = basis
 mol.spin = 0

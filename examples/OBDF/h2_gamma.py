@@ -16,11 +16,14 @@ H 1.5 1.5 1
 H 1.5 1.5 2
 """
 cell.basis = '6-31g'
-cell.a = np.eye(3) * 3
-cell.gs = [10] * 3
+# cell.basis = 'gth-szv'
+# cell.pseudo = 'gth-pade'
+cell.a = np.eye(3) * 50
+cell.gs = [100, 100, 100]
 cell.build()
 
-nk = [2, 1, 1]
+
+nk = [1, 1, 1]
 kpts = cell.make_kpts(nk)
 
 # ============================================================
@@ -33,7 +36,8 @@ kmf = scf.KRHF(cell, kpts).run()
 # 3. kOBMP2
 # ============================================================
 
-khf = copy.deepcopy(kmf)
+# khf = copy.copy(kmf)
+khf = kmf
 
 krobmp = kobmp2.OBMP2(khf)
 krobmp.second_order = True

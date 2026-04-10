@@ -218,3 +218,7 @@ __marimo__/
 # vscode
 .vscode/
 HPC/
+*.txt
+*.chk
+*.win
+*.wout
