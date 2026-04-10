@@ -991,7 +991,6 @@ class OBMP2(lib.StreamObject):
             self.check_sanity()
         # self.dump_flags()
         # _kern(self, mo_energy, mo_coeff, eris, with_t2, self.verbose)
-        self.ene_tot, self.mo_energy = _kern(self, mo_energy, mo_coeff, mo_occ, with_t2, self.verbose)
         (
             self.ene_tot,
             self.mo_energy,
