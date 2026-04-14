@@ -1,6 +1,6 @@
-from pyscf import gto, scf, mcscf
+from pyscf import gto, scf, mcscf, tools
 
-# from mp import UOBMP2_faster, UOBMP2_downfold, OBMP2_faster, obmp2_faster, ROBMP2_downfold
+# from pyscf.mp import UOBMP2_faster, UOBMP2_downfold, OBMP2, obmp2_faster, OBMP2_downfold
 from pycmf.OBMP import OBMP2
 from pycmf.OBDF import OBMP2_downfold
 from pyscf import fci
@@ -10,13 +10,13 @@ import numpy as np
 
 
 # ===== 1. Khai báo input: H2 CAS(2,2) =====
+
 basis = 'ccpvdz'
+# basis = '6-31g'
 nocc_inact = [0, 0]  # không có orbital core đóng băng
 nact = [4, 4]  # 2 orbital active (σ, σ*)
 num_particles = [1, 1]  # 2 electron: 1 alpha, 1 beta
-caslist_a = [1, 2, 3, 4]  # active orbital index (0-based)
-caslist_b = caslist_a
-caslist = [caslist_a, caslist_b]
+caslist = [1, 2, 5, 6]  # active orbital index (0-based)
 
 # Tạo phân tử H2
 mol = gto.Mole()
@@ -24,15 +24,14 @@ mol.atom = [
     ['H', (0.0, 0.0, 0.0)],
     ['H', (0.0, 0.0, 0.74)],  # khoảng cách cân bằng ~0.74 Å
 ]
-
-
 """
+
 # ===== 1. Khai báo input =====
 basis = 'ccpvdz'
-nocc_inact = [2, 2] #number of orb and e inactive
-nact = [8, 8] #so orb alpha và beta active
-num_particles = [5, 5]   # so e alpha, beta
-caslist_a = [3, 4, 5, 6, 7, 8, 9, 10]  # tinh tu 1!
+nocc_inact = [4, 4] #number of orb and e inactive
+nact = [6, 6] #so orb alpha và beta active
+num_particles = [3, 3]   # so e alpha, beta
+caslist_a = [5, 6, 7, 8, 9, 10]  # tinh tu 1!
 caslist_b = caslist_a
 caslist = [caslist_a, caslist_b]
 
@@ -52,7 +51,21 @@ mol.build()
 myrhf = scf.RHF(mol)
 myrhf.kernel()
 
-myuhf = scf.UHF(mol).run()
+# myuhf = scf.UHF(mol).run()
+
+# print("mo_coeff:\n", myrhf.mo_coeff.shape)
+
+"""
+# Xuất file molden
+tools.molden.from_mo(
+    mol,
+    'h2.molden',
+    myrhf.mo_coeff,
+    ene=myrhf.mo_energy,
+    occ=myrhf.mo_occ
+)
+"""
+
 
 # ===== 3. OBMP2 full-space =====
 robmp = OBMP2(myrhf)
@@ -61,7 +74,7 @@ robmp.kernel()
 
 # ===== 4. Sort MO theo caslist (restricted) =====
 mycas = mcscf.CASCI(myrhf, ncas=nact[0], nelecas=sum(num_particles))
-mo_sorted = mcscf.sort_mo(mycas, robmp.mo_coeff, caslist_a)
+mo_sorted = mcscf.sort_mo(mycas, robmp.mo_coeff, caslist)
 
 # ===== 5. Tạo đối tượng downfold =====
 robact = OBMP2_downfold(myrhf, nact=nact[0], nocc_act=num_particles[0])
@@ -69,20 +82,22 @@ robact.mo_coeff = mo_sorted
 robact.mo_energy = robmp.mo_energy
 robact.c0_tot = getattr(robmp, 'c0_tot', None)
 robact.ene_tot = getattr(robmp, 'ene_tot', None)
-robact.fock_hf = getattr(robmp, 'fock_hf', None)
+# robact.fock_hf = getattr(robmp, "fock_hf", None)
 robact.c1 = getattr(robmp, 'c1', None)
 robact.second_order = True
-# robact.restricted = True
 
-# print("robact.c0_tot, robact.ene_tot:", robact.c0_tot, robact.ene_tot)
-# _, robmp.tmp1_bar = obmp2_faster.make_amp(robmp)
+# fix
+fock_temp = mcscf.sort_mo(mycas, robmp.fock_hf, caslist)
+robact.fock_hf = mcscf.sort_mo(mycas, fock_temp.T, caslist)
 
+
+# fix
 # Sắp lại tmp1/tmp1_bar cho đúng thứ tự MO
-# robact.tmp1 = robact.sort_tmp1(robmp.tmp1, caslist)
-# robact.tmp1_bar = robact.sort_tmp1(robmp.tmp1_bar, caslist)
+robact.tmp1 = robact.sort_tmp1(robmp.tmp1, caslist)
+robact.tmp1_bar = robact.sort_tmp1(robmp.tmp1_bar, caslist)
 
-robact.tmp1 = robmp.tmp1
-robact.tmp1_bar = robmp.tmp1_bar
+# robact.tmp1 = robmp.tmp1
+# robact.tmp1_bar = robmp.tmp1_bar
 
 
 # ===== 6. Chạy kernel downfold =====
@@ -113,7 +128,7 @@ norb = nact[0]  # hoặc nact[1], 2 giá trị này phải bằng nhau
 # Khởi tạo FCI solver dạng UHF
 cis = direct_spin1.FCI()
 
-cis.nroots = 5  # Lấy 4 trạng thái đầu tiên (ground + 3 excited)
+cis.nroots = 4  # Lấy 4 trạng thái đầu tiên (ground + 3 excited)
 
 e_fci_act, wfci = cis.kernel(h1, h2, norb, (nalpha, nbeta))
 
