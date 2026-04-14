@@ -148,6 +148,77 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
 #################################################################################################################
 
 
+def ext_list(nmo, occ, oact, caslist):
+    nocc_inact = occ - oact
+
+    mask = numpy.ones(nmo, dtype=bool)
+    mask[caslist] = False
+    ext_idx = numpy.where(mask)[0]
+
+    next = len(ext_idx) - nocc_inact
+    for i in numpy.arange(next):
+        ext_idx[nocc_inact:][i] -= occ
+
+    return ext_idx
+
+
+def active_tmp1(mp, occ_ele, oact_ele, t2_ele, caslist_ele):
+    nmo0 = numpy.array(mp.get_nmo())
+    nmo = [nmo0, nmo0]
+
+    nocc_inact = [occ_ele[0] - oact_ele[0], occ_ele[1] - oact_ele[1]]
+    nvir = [nmo[0] - occ_ele[0], nmo[1] - occ_ele[1]]
+
+    caslist_ele = [[i - 1 for i in caslist_ele[0]], [i - 1 for i in caslist_ele[1]]]
+
+    ext_idx = [0, 0]
+    ext_idx[0] = ext_list(nmo[0], occ_ele[0], oact_ele[0], caslist_ele[0]).tolist()
+    ext_idx[1] = ext_list(nmo[1], occ_ele[1], oact_ele[1], caslist_ele[1]).tolist()
+
+    if len(ext_idx[0]) + mp.nact != nmo[0] or len(ext_idx[1]) + mp.nact != nmo[1]:
+        raise ValueError(
+            'Active space size is incompatible with caslist. ncas = %s.  caslist %s' % (mp.nact, caslist_ele)
+        )
+
+    occ_idx = [caslist_ele[0][: oact_ele[0]], caslist_ele[1][: oact_ele[1]]]
+
+    vir_idx = [
+        [i - occ_ele[0] for i in caslist_ele[0][oact_ele[0] :]],
+        [i - occ_ele[1] for i in caslist_ele[1][oact_ele[1] :]],
+    ]
+
+    t2_icore = t2_ele[ext_idx[0][: nocc_inact[0]], :, :]
+    t2_iact = t2_ele[occ_idx[0], :, :, :]
+    t2_i = numpy.concatenate([t2_icore, t2_iact], axis=0)
+
+    t2_kcore = t2_i[:, :, ext_idx[1][: nocc_inact[1]], :]
+    t2_kact = t2_i[:, :, occ_idx[1], :]
+    t2_k = numpy.concatenate([t2_kcore, t2_kact], axis=2)
+
+    t2_jact = t2_k[:, vir_idx[0], :, :]
+    t2_jext = t2_k[:, ext_idx[0][nocc_inact[0] :], :, :]
+    t2_j = numpy.concatenate([t2_jact, t2_jext], axis=1)
+
+    t2_lact = t2_j[:, :, :, vir_idx[1]]
+    t2_lext = t2_j[:, :, :, ext_idx[1][nocc_inact[1] :]]
+    t2_l = numpy.concatenate([t2_lact, t2_lext], axis=3)
+    # print(occ_idx)
+
+    return t2_l
+
+
+def sort_tmp1(mp, tmp1, caslist):
+    nocc = numpy.array(mp.get_nocc())
+    nocc_act = mp.nocc_act
+
+    occ_ele = [nocc, nocc]
+    oact_ele = [nocc_act, nocc_act]
+    caslist_ele = [caslist, caslist]
+    tmp1_sorted = active_tmp1(mp, occ_ele, oact_ele, tmp1, caslist_ele)
+
+    return tmp1_sorted
+
+
 def int_transform(eri_ao, mo_coeff):
     nao = mo_coeff.shape[0]
     nmo = mo_coeff.shape[1]
@@ -167,6 +238,15 @@ def make_veff_core(mp):
     nact = mp.nact
     nocc_act = mp.nocc_act
     nocc_inact = nocc - nocc_act
+
+    """
+    print("nocc:\n", nocc)
+    print("mo_coeff:\n", mo_coeff)
+    
+    print("nact:\n", nact)
+    print("nocc_act:\n", nocc_act)
+    print("nocc_inact:\n", nocc_inact)
+    """
 
     cc = numpy.asarray(mo_coeff[:, :nocc_inact], order='F')
     cg = numpy.asarray(mo_coeff[:, nocc_inact : nocc_inact + nact], order='F')
@@ -758,6 +838,7 @@ class OBMP2(lib.StreamObject):
     second_BCH = second_BCH
     make_rdm1 = make_rdm1
     # make_rdm2 = make_rdm2
+    sort_tmp1 = sort_tmp1
 
     # as_scanner = as_scanner
 
