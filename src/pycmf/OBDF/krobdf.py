@@ -36,127 +36,81 @@ LARGE_DENOM = getattr(__config__, 'LARGE_DENOM', 1e14)
 
 def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2, verbose=logger.NOTE):
 
-    nuc = mp._scf.energy_nuc()  # Năng lượng tương tác Coulomb giữa các hạt nhân
+    kpts = mp.kpts
+    nkpts = numpy.shape(mo_energy)[0]
 
-    nmo = mp.nmo  # Sô dãy, mo, orbital
-
-    kpts = mp.kpts  # Mảng các k-point trong Brillouin zone
-    nkpts = numpy.shape(mo_energy)[0]  # sô kpoint
-
-    nocc = mp.nocc  # dãy bị chiếm
-
-    nact = mp.nact  # dãy active
-    nocc_act = mp.nocc_act  # dãy active bị chiêm
+    nocc = mp.nocc
+    nact = mp.nact
+    nocc_act = mp.nocc_act
 
     # Core band
     mp.ncore = nocc - nocc_act
-    ncore = mp.ncore  # dãy bị đóng băng
+    ncore = mp.ncore
 
-    # Virtual band
-    mp.nvir = nmo - nact
-    nvir = mp.nvir  # dãy không bị chiếm
-
+    # Virtual band (Vẫn gán vào mp để đảm bảo tính nhất quán của object)
+    mp.nvir = mp.nmo - nact
     mp.nvir_act = nact - nocc_act
-    nvir_act = mp.nvir_act  # dãy active không bị chiếm
 
     print()
     print('**********************************')
     print('************** KROBDF *************')
 
-    print('nmo, ncore, nact, nvir, nocc', nmo, ncore, nact, nocc, nvir)
+    print('nmo, ncore, nact, nvir, nocc', mp.nmo, ncore, nact, mp.nvir, mp.nocc)
     sort_idx = numpy.argsort(mo_energy)
-    print(sort_idx)
 
     # ============================================================
     # H1 (k)
     # ============================================================
+    h1ao = mp._scf.get_hcore()
+    C = mp.mo_coeff
 
-    # 1. make h1-------------------------------------
-    # h1ao
-    h1ao = mp._scf.get_hcore()  # list over k
-    C = mp.mo_coeff  # list over k
-
-    # h1 in MO basis (per k)
+    # h1 in MO basis
     h1mo = [reduce(numpy.dot, (mo.conj().T, h1ao[k], mo)) for k, mo in enumerate(C)]
+    veff_core = make_veff_core(mp)
 
-    # veff_core in active MO (per k)
-    veff_core = make_veff_core(mp)  # list over k
-
-    # build effective h1 in active space
-    h1mo_act_eff = []
-
-    for k in range(len(h1mo)):
+    # Build effective h1 in active space trực tiếp vào Numpy Array
+    h1mo_act_eff = numpy.zeros((nkpts, nact, nact), dtype=complex)
+    for k in range(nkpts):
         h1mo_act_k = h1mo[k][ncore : ncore + nact, ncore : ncore + nact]
+        h1mo_act_eff[k] = h1mo_act_k + veff_core[k]
 
-        h1mo_act_eff.append(h1mo_act_k + veff_core[k])
+    make_veff(mp)
 
-    h1mo_act_eff = numpy.array(h1mo_act_eff, dtype=complex)
-    print('h1mo_act_eff:\n', h1mo_act_eff)
-
-    # 2. Fock-------------------------------------
-    fock = []
+    # ============================================================
+    # Fock
+    # ============================================================
     fock_hf_act = []
-
-    # veff[k] từ make_veff (PBC)
-    _, veff, c0 = make_veff(mp)
-
-    for k in range(len(mp.fock_hf)):
-        # Fock HF trong active space (k-resolved)
+    for k in range(nkpts):
         fock_hf_k = mp.fock_hf[k][ncore : ncore + nact, ncore : ncore + nact]
-
-        # copy
-        fock_k = fock_hf_k.copy()
-
-        fock.append(fock_k)
-        fock_hf_act.append(fock_k)
+        fock_hf_act.append(fock_hf_k.copy())
 
     if mp.second_order:
         mp.ampf = 1.0
-    # print("fock:\n", fock)
-    # 3. BCH--------------------------------------
 
-    # Active BCH
+    # ============================================================
+    # BCH
+    # ============================================================
+    # 1. Active BCH
+    c0, c1 = active_BCH(mp, mp.mo_energy, mp.mo_coeff, fock_hf_act)  # Chạy được
 
-    c0, c1 = active_BCH(mp, mp.mo_energy, mp.mo_coeff, fock_hf_act)
-    c0_active_loop, c1_active_loop = active_BCH_loop(mp, mp.mo_energy, mp.mo_coeff, fock_hf_act)
-    # c0, c1 = active_BCH_full(mp, mp.mo_energy, mp.mo_coeff, mp.fock_hf)
-
-    for k in range(nkpts):
-        fock[k] += c1[k] + c1[k].T.conj()
-
-    # Internal BCH
-    c1_inter_loop = inter_BCH_loop(mp, mp.mo_energy, mp.mo_coeff, mp.fock_hf)
-
+    # 2. Internal BCH (Loại bỏ các hàm _loop dư thừa)
     c1_inter = inter_BCH(mp, mp.mo_energy, mp.mo_coeff, mp.fock_hf)
 
-    # External BCH
+    # 3. External BCH
     c1_exter = c1_inter - c1
 
-    print('c1_active_loop\n', c1_active_loop)
-
-    print('c1_active\n', c1)
-
-    print('c1_inter_loop\n', c1_inter_loop)
-
-    print('c1_inter\n', c1_inter)
-
-    print('c1_exter\n', c1_exter)
-
+    # 4. Áp dụng External BCH vào Hamiltonian hiệu dụng
     for k in range(nkpts):
-        fock[k] += c1_exter[k] + c1_exter[k].T.conj()
         h1mo_act_eff[k] += c1_exter[k] + c1_exter[k].T.conj()
-        print('(c1_exter[k] + c1_exter[k].T.conj())\n', (c1_exter[k] + c1_exter[k].T.conj()))
 
     # ============================================================
     # H2
     # ============================================================
-    from pyscf.pbc.lib import kpts_helper
-
     kconserv = kpts_helper.get_kconserv(mp._scf.cell, kpts)
     fao2mo = mp._scf.with_df.ao2mo
 
-    ic = ncore  # c = core
-    ia = ncore + nact  # a = active
+    ic = ncore
+    ia = ncore + nact
 
     h2mo_act = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nact, nact, nact, nact), dtype=complex)
 
@@ -260,8 +214,6 @@ def ene_denom(mp, mo_energy, ki, ka, kj, kb):
     nvir = nmo - nocc
     nkpts = numpy.shape(mo_energy)[0]
 
-    # print(mo_energy)
-
     nonzero_opadding, nonzero_vpadding = padding_k_idx(mp, kind='split')
     mo_e_o = [mo_energy[k][:nocc] for k in range(nkpts)]
     mo_e_v = [mo_energy[k][nocc:] for k in range(nkpts)]
@@ -273,33 +225,39 @@ def ene_denom(mp, mo_energy, ki, ka, kj, kb):
     ejb = LARGE_DENOM * numpy.ones((nocc, nvir), dtype=mo_energy[0].dtype)
     n0_ovp_jb = numpy.ix_(nonzero_opadding[kj], nonzero_vpadding[kb])
     ejb[n0_ovp_jb] = (mo_e_o[kj][:, None] - mo_e_v[kb])[n0_ovp_jb]
-    e_iajb = lib.direct_sum('ia,jb -> iajb', eia, ejb)
 
     ejh = LARGE_DENOM * numpy.ones((nocc, nocc), dtype=mo_energy[0].dtype)
     n0_ovp_jh = numpy.ix_(nonzero_opadding[kj], nonzero_opadding[kb])
     ejh[n0_ovp_jh] = (mo_e_o[kj][:, None] - mo_e_o[kb])[n0_ovp_jh]
-    e_iajh = lib.direct_sum('ia,jh -> iajh', eia, ejh)
+
+    eah = LARGE_DENOM * numpy.ones((nvir, nocc), dtype=mo_energy[0].dtype)
+    n0_ovp_ah = numpy.ix_(nonzero_opadding[ka], nonzero_opadding[kb])
+    eah[n0_ovp_ah] = (mo_e_v[ka][:, None] - mo_e_o[kb])[n0_ovp_ah]
+
+    eij = LARGE_DENOM * numpy.ones((nocc, nocc), dtype=mo_energy[0].dtype)
+    n0_ovp_ij = numpy.ix_(nonzero_opadding[ki], nonzero_opadding[kj])
+    eij[n0_ovp_ij] = (mo_e_o[ki][:, None] - mo_e_o[kj])[n0_ovp_ij]
 
     elb = LARGE_DENOM * numpy.ones((nvir, nvir), dtype=mo_energy[0].dtype)
-    n0_ovp_lb = numpy.ix_(nonzero_opadding[kj], nonzero_opadding[kb])
+    n0_ovp_lb = numpy.ix_(nonzero_vpadding[kj], nonzero_vpadding[kb])
     elb[n0_ovp_lb] = (mo_e_v[kj][:, None] - mo_e_v[kb])[n0_ovp_lb]
-    e_ialb = lib.direct_sum('ia,lb -> ialb', eia, elb)
 
-    return e_iajb, e_iajh, e_ialb
+    e_iajb = lib.direct_sum('ia,jb -> iajb', eia, ejb)
+    e_ialb = lib.direct_sum('ia,lb -> ialb', eia, elb)
+    e_iajh = lib.direct_sum('ia,jh -> iajh', eia, ejh)
+    e_ahij = lib.direct_sum('ah,ij -> ahij', eah, eij)
+
+    return e_iajb, e_ialb, e_iajh, e_ahij
 
 
 def active_BCH(mp, mo_energy, mo_coeff, fock_hf_act):
     import numpy
     from pyscf.pbc.lib import kpts_helper
 
-    nmo = mp.nmo
-    nocc = mp.nocc
-    nvir = nmo - nocc
     nkpts = numpy.shape(mo_energy)[0]
     kpts = mp.kpts
 
     ncore = mp.ncore
-
     nact = mp.nact
     nocc_act = mp.nocc_act
     nvir_act = mp.nvir_act
@@ -312,628 +270,124 @@ def active_BCH(mp, mo_energy, mo_coeff, fock_hf_act):
 
     fock_hf_act = numpy.array(fock_hf_act)
 
-    # --- T2 amplitudes (active-only filled later) ---
-    tmp1_act = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
-    tmp1_bar_act = numpy.zeros_like(tmp1_act)
+    # Khởi tạo mảng (5D logic)
+    tmp1_act = numpy.zeros((nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
+    tmp1_bar_act = numpy.zeros((nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
+    tmp_bar = numpy.zeros((nkpts, nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
 
-    # --- Needed MO integrals ---
-    h2mo_ovgg = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nact, nact), dtype=complex)
-    h2mo_ovov = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
-    h2mo_ovog = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nocc_act, nact), dtype=complex)
-    h2mo_ovgv = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nact, nvir_act), dtype=complex)
+    h2mo_ovgg = numpy.zeros((nkpts, nocc_act, nvir_act, nact, nact), dtype=complex)
+    h2mo_ovov = numpy.zeros((nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
+    h2mo_ovog = numpy.zeros((nkpts, nocc_act, nvir_act, nocc_act, nact), dtype=complex)
+    h2mo_ovgv = numpy.zeros((nkpts, nocc_act, nvir_act, nact, nvir_act), dtype=complex)
 
-    # ============================================================
-    # AO → MO integrals
-    # ============================================================
+    c1 = numpy.zeros((nkpts, nact, nact), dtype=complex)
+    c2 = numpy.zeros((nkpts, nact, nact), dtype=complex)
+
+    y1 = numpy.zeros((nkpts, nvir_act, nocc_act), dtype=complex)
+    y2 = numpy.zeros((nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
+    y3 = numpy.zeros((nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
+    y4 = numpy.zeros((nkpts, nocc_act, nocc_act), dtype=complex)
+    y5 = numpy.zeros((nkpts, nvir_act, nvir_act), dtype=complex)
+
+    c0 = 0.0
+    print('mo energy', mo_energy)
+
     for ki in range(nkpts):
         for kj in range(nkpts):
+            # --- TÍNH TÍCH PHÂN ---
             for ka in range(nkpts):
                 kb = kconserv[ki, ka, kj]
 
-                # occupied active
                 o_i = mo_coeff[ki][:, ncore : ncore + nocc_act]
-
-                # virtual active
                 o_a = mo_coeff[ka][:, ncore + nocc_act : ncore + nocc_act + nvir_act]
-
-                # full active
                 o_j = mo_coeff[kj][:, ncore : ncore + nact]
                 o_b = mo_coeff[kb][:, ncore : ncore + nact]
 
-                h2mo_ovgg[ki, ka, kj, kb] = (
-                    fao2mo((o_i, o_a, o_j, o_b), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False).reshape(
-                        nocc_act, nvir_act, nact, nact
-                    )
+                h2mo_ovgg[ka] = (
+                    fao2mo(
+                        (o_i, o_a, o_j, o_b), (mp.kpts[ki], mp.kpts[ka], mp.kpts[kj], mp.kpts[kb]), compact=False
+                    ).reshape(nocc_act, nvir_act, nact, nact)
                     / nkpts
                 )
 
-                h2mo_ovov[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :nocc_act, nocc_act:]
-                h2mo_ovog[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :nocc_act, :]
-                h2mo_ovgv[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :, nocc_act:]
+                h2mo_ovov[ka] = h2mo_ovgg[ka][:, :, :nocc_act, nocc_act:]
+                h2mo_ovgv[ka] = h2mo_ovgg[ka][:, :, :, nocc_act:]
+                h2mo_ovog[ka] = h2mo_ovgg[ka][:, :, :nocc_act, :]
 
-    # ============================================================
-    # Build active T2 amplitudes
-    # ============================================================
-    for ki in range(nkpts):
-        for kj in range(nkpts):
+            # --- CỘNG DỒN BCH ---
             for ka in range(nkpts):
                 kb = kconserv[ki, ka, kj]
 
-                e_iajb, _, _ = ene_denom(mp, mo_energy, ki, ka, kj, kb)
+                # Hàm ene_denom có thể trả về nhiều giá trị, ta lấy giá trị denom đầu tiên
+                e_iajb_full = ene_denom(mp, mo_energy, ki, ka, kj, kb)[0]
 
-                w_iajb = h2mo_ovov[ki, ka, kj, kb] - 0.5 * h2mo_ovov[ki, kb, kj, ka].transpose(0, 3, 2, 1)
-
+                # Cắt lấy vùng active denom
                 o = slice(0, nocc_act)
                 v = slice(0, nvir_act)
+                e_iajb_act = e_iajb_full[o, v, o, v]
 
-                tmp1_act[ki, ka, kj, kb][o, v, o, v] = (
-                    h2mo_ovov[ki, ka, kj, kb][o, v, o, v] / e_iajb[o, v, o, v]
-                ).conj()
+                w_iajb = h2mo_ovov[ka] - 0.5 * h2mo_ovov[kb].transpose(0, 3, 2, 1)
 
-                tmp1_bar_act[ki, ka, kj, kb][o, v, o, v] = (w_iajb[o, v, o, v] / e_iajb[o, v, o, v]).conj()
+                tmp1_act[ka] = (h2mo_ovov[ka] / e_iajb_act).conj()
+                tmp1_bar_act[ka] = (w_iajb / e_iajb_act).conj()
 
-    # ============================================================
-    # BCH first order
-    # ============================================================
-    c1 = numpy.zeros((nkpts, nkpts, nact, nact), dtype=complex)
+                mp.ampf = getattr(mp, 'ampf', 1.0)
+                tmp1_act[ka] *= mp.ampf
+                tmp1_bar_act[ka] *= mp.ampf
 
-    c1[:, :, :, :nocc_act] += 2 * numpy.einsum('qweriajb, qwtriapb -> tepj', tmp1_bar_act, h2mo_ovgv)
+                # --- 1st order ---
+                c1[kb, nocc_act:, :] -= 2 * numpy.einsum('iajb, iajp -> bp', tmp1_bar_act[ka], h2mo_ovog[ka])
+                c1[kj, :, :nocc_act] += 2 * numpy.einsum('iajb, iapb -> pj', tmp1_bar_act[ka], h2mo_ovgv[ka])
 
-    c1[:, :, nocc_act:, :] -= 2 * numpy.einsum('qwetiajb, qweriajp -> trbp', tmp1_bar_act, h2mo_ovog)
-
-    c1[:, :, nocc_act:, :nocc_act] += 2 * numpy.einsum(
-        'qai, qqeriajb -> rebj', fock_hf_act[:, nocc_act:, :nocc_act].conj(), tmp1_bar_act
-    )
-
-    c1 = numpy.einsum('wwpq -> wpq', c1)
-
-    c0_1st = -4 * numpy.einsum('qweriajb,qweriajb', tmp1_bar_act, h2mo_ovov).real / nkpts
-
-    # print("c1_active_1st\n", c1)
-    # ============================================================
-    # BCH second order
-    # ============================================================
-    # BCH2 default
-    mp.ampf = 1.0
-    tmp1_act *= mp.ampf
-    tmp1_bar_act *= mp.ampf
-
-    c0_2nd = 0.0
-    c2 = numpy.zeros((nkpts, nkpts, nact, nact), dtype=complex)
-
-    if mp.second_order:
-        # [1]
-        y1 = 2 * numpy.einsum('qai, qqeriajb -> erjb', fock_hf_act[:, nocc_act:, :nocc_act].conj(), tmp1_bar_act)
-        c2[:, :, nocc_act:, :nocc_act] = numpy.einsum('erjb, erqtjbkc -> tqck', y1, tmp1_bar_act.conj())
-
-        # [2][3][8]
-        y1 = numpy.einsum('qca, wqrtickb -> wqrtiakb', fock_hf_act[:, nocc_act:, nocc_act:], tmp1_bar_act.conj())
-        c2[:, :, :nocc_act, :nocc_act] += numpy.einsum('wqrtialb, wqetiajb -> relj', y1, tmp1_act)
-        c2[:, :, :nocc_act, :nocc_act] += numpy.einsum('wqrtkajb, eqrtiajb -> weki', y1, tmp1_act)
-        c2[:, :, nocc_act:, nocc_act:] -= numpy.einsum('wqrtiajd, wqreiajb -> etbd', y1, tmp1_act)
-        c0_2nd -= 4 * numpy.einsum('qweriajb,qweriajb ->', y1, tmp1_act).real
-
-        # [4][6][7]
-        y1 = numpy.einsum('qki, qwrtkalb -> qwrtialb', fock_hf_act[:, :nocc_act, :nocc_act], tmp1_bar_act.conj())
-        c2[:, :, :nocc_act, :nocc_act] -= numpy.einsum('qwrtialb, qwetiajb -> relj', y1, tmp1_act)
-        c2[:, :, nocc_act:, nocc_act:] += numpy.einsum('qwrticjb, qertiajb -> ewac', y1, tmp1_act)
-        c2[:, :, nocc_act:, nocc_act:] += numpy.einsum('qwrtiajd, qwreiajb -> etbd', y1, tmp1_act)
-        c0_2nd += 4 * numpy.einsum('qwrtiajb, qwrtiajb ->', y1, tmp1_act).real
-        c0_2nd /= nkpts
-
-        # [5]
-        y1 = numpy.einsum('qwrtiajb, ewrtkajb -> eqki', tmp1_act, tmp1_bar_act.conj())
-        c2[:, :, :, :nocc_act] -= numpy.einsum('qpi, eqki -> qepk', fock_hf_act[:, :, :nocc_act], y1)
-
-        # [9]
-        y1 = numpy.einsum('qwrtiajb, qerticjb -> weac', tmp1_act, tmp1_bar_act.conj())
-        c2[:, :, :, nocc_act:] -= numpy.einsum('wpa, weac -> wepc', fock_hf_act[:, :, nocc_act:], y1)
-
-    c0 = c0_1st + c0_2nd / nkpts
-
-    c1 += numpy.einsum('wwps -> wps', c2)
-    return c0, c1
-
-
-def active_BCH_full(mp, mo_energy, mo_coeff, fock_hf):
-    import numpy
-    from pyscf.pbc.lib import kpts_helper
-
-    nmo = mp.nmo
-    nocc = mp.nocc
-    nvir = nmo - nocc
-    nkpts = numpy.shape(mo_energy)[0]
-    kpts = mp.kpts
-
-    ncore = mp.ncore
-    nocc_act = mp.nocc_act
-    nvir_act = mp.nvir_act
-
-    occ_act = slice(ncore, ncore + nocc_act)
-    vir_act = slice(0, nvir_act)
-
-    kconserv = kpts_helper.get_kconserv(mp._scf.cell, kpts)
-    fao2mo = mp._scf.with_df.ao2mo
-
-    # --- T2 amplitudes (active-only filled later) ---
-    tmp1 = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-    tmp1_bar = numpy.zeros_like(tmp1)
-
-    # --- Needed MO integrals ---
-    h2mo_ovgg = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nmo, nmo), dtype=complex)
-    h2mo_ovov = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-    h2mo_ovog = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nmo), dtype=complex)
-    h2mo_ovgv = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nmo, nvir), dtype=complex)
-
-    # ============================================================
-    # AO → MO integrals
-    # ============================================================
-    for ki in range(nkpts):
-        for kj in range(nkpts):
-            for ka in range(nkpts):
-                kb = kconserv[ki, ka, kj]
-                kp = kj
-                kq = kb
-
-                o_i = mo_coeff[ki][:, :nocc]
-                o_a = mo_coeff[ka][:, nocc:]
-                o_p = mo_coeff[kp]
-                o_q = mo_coeff[kq]
-
-                h2mo_ovgg[ki, ka, kj, kb] = (
-                    fao2mo((o_i, o_a, o_p, o_q), (kpts[ki], kpts[ka], kpts[kp], kpts[kq]), compact=False).reshape(
-                        nocc, nvir, nmo, nmo
+                if ki == ka:
+                    c1[kj, nocc_act:, :nocc_act] += 2 * numpy.einsum(
+                        'iajb, ia -> bj', tmp1_bar_act[ka], fock_hf_act[ka, :nocc_act, nocc_act:]
                     )
-                    / nkpts
-                )
+                c0 -= 4 * numpy.einsum('iajb, iajb', tmp1_bar_act[ka], h2mo_ovov[ka]).real
 
-                h2mo_ovov[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :nocc, nocc:]
-                h2mo_ovog[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :nocc, :]
-                h2mo_ovgv[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :, nocc:]
+                # --- 2nd order ---
+                if hasattr(mp, 'second_order') and mp.second_order:
+                    if ki == ka:
+                        y1[kj] += 2 * numpy.einsum(
+                            'ia, iajb -> bj', fock_hf_act[ka][:nocc_act, nocc_act:], tmp1_bar_act[ka]
+                        )
+                        tmp_bar[ki, kj] = tmp1_bar_act[ka]
 
-    # ============================================================
-    # Build active T2 amplitudes
-    # ============================================================
-    for ki in range(nkpts):
-        for kj in range(nkpts):
-            for ka in range(nkpts):
-                kb = kconserv[ki, ka, kj]
+                    y2[ka] = numpy.einsum(
+                        'ca, iclb -> ialb', fock_hf_act[ka, nocc_act:, nocc_act:], tmp1_bar_act[ka].conj()
+                    )
+                    y3[ka] = numpy.einsum(
+                        'ik, kalb -> ialb', fock_hf_act[ki, :nocc_act, :nocc_act], tmp1_bar_act[ka].conj()
+                    )
+                    y4[ki, :, :] += numpy.einsum('iajb, kajb -> ki', tmp1_act[ka], tmp1_bar_act[ka].conj())
+                    y5[ka, :, :] += numpy.einsum('iajb, icjb -> ac', tmp1_act[ka], tmp1_bar_act[ka].conj())
 
-                e_iajb, _, _ = ene_denom(mp, mo_energy, ki, ka, kj, kb)
+                    c2[kj, :nocc_act, :nocc_act] += numpy.einsum('ialb, iajb -> lj', y2[ka], tmp1_act[ka])
+                    c2[ki, :nocc_act, :nocc_act] += numpy.einsum('kajb, iajb -> ki', y2[ka], tmp1_act[ka])
+                    c2[kb, nocc_act:, nocc_act:] -= numpy.einsum('iajd, iajb -> bd', y2[ka], tmp1_act[ka])
+                    c2[kj, :nocc_act, :nocc_act] -= numpy.einsum('ialb, iajb -> lj', y3[ka], tmp1_act[ka])
+                    c2[ka, nocc_act:, nocc_act:] += numpy.einsum('icjb, iajb -> ac', y3[ka], tmp1_act[ka])
+                    c2[kb, nocc_act:, nocc_act:] += numpy.einsum('iajd, iajb -> bd', y3[ka], tmp1_act[ka])
 
-                w_iajb = h2mo_ovov[ki, ka, kj, kb] - 0.5 * h2mo_ovov[ki, kb, kj, ka].transpose(0, 3, 2, 1)
+                    c0 -= 4 * numpy.einsum('iajb,iajb ->', y2[ka], tmp1_act[ka]).real
+                    c0 += 4 * numpy.einsum('iajb,iajb ->', y3[ka], tmp1_act[ka]).real
 
-                tmp1[ki, ka, kj, kb][occ_act, vir_act, occ_act, vir_act] = (
-                    h2mo_ovov[ki, ka, kj, kb][occ_act, vir_act, occ_act, vir_act]
-                    / e_iajb[occ_act, vir_act, occ_act, vir_act]
-                ).conj()
+    # --- Tổng hợp c2 ---
+    if hasattr(mp, 'second_order') and mp.second_order:
+        for ki in range(nkpts):
+            c2[ki, :nocc_act, :] -= numpy.einsum('ip, ki -> kp', fock_hf_act[ki, :nocc_act, :], y4[ki])
+            c2[ki, :, nocc_act:] -= numpy.einsum('pa, ac -> pc', fock_hf_act[ki, :, nocc_act:], y5[ki])
+            c2[ki, :nocc_act, nocc_act:] += numpy.einsum('qbj, qjbkc -> kc', y1, tmp_bar[:, ki, :, :, :, :].conj())
 
-                tmp1_bar[ki, ka, kj, kb][occ_act, vir_act, occ_act, vir_act] = (
-                    w_iajb[occ_act, vir_act, occ_act, vir_act] / e_iajb[occ_act, vir_act, occ_act, vir_act]
-                ).conj()
-
-    # BCH2 default
-    mp.ampf = 1.0
-    tmp1 *= mp.ampf
-    tmp1_bar *= mp.ampf
-
-    # ============================================================
-    # BCH first order
-    # ============================================================
-    c1 = numpy.zeros((nkpts, nkpts, nmo, nmo), dtype=complex)
-
-    c1[:, :, :, :nocc] += 2 * numpy.einsum('qweriajb, qwtriapb -> tepj', tmp1_bar, h2mo_ovgv)
-
-    c1[:, :, nocc:, :] -= 2 * numpy.einsum('qwetiajb, qweriajp -> trbp', tmp1_bar, h2mo_ovog)
-
-    c1[:, :, nocc:, :nocc] += 2 * numpy.einsum('qai, qqeriajb -> rebj', fock_hf[:, nocc:, :nocc].conj(), tmp1_bar)
-
-    c1 = numpy.einsum('wwpq -> wpq', c1)
-
-    c0_1st = -4 * numpy.einsum('qweriajb,qweriajb', tmp1_bar, h2mo_ovov).real / nkpts
-
-    print('c1_active_test\n', c1)
-    # ============================================================
-    # BCH second order
-    # ============================================================
-    c0_2nd = 0.0
-    c2 = numpy.zeros((nkpts, nkpts, nmo, nmo), dtype=complex)
-
-    if mp.second_order:
-        # [1]
-        y1 = 2 * numpy.einsum('qai, qqeriajb -> erjb', fock_hf[:, nocc:, :nocc].conj(), tmp1_bar)
-        c2[:, :, nocc:, :nocc] = numpy.einsum('erjb, erqtjbkc -> tqck', y1, tmp1_bar.conj())
-
-        # [2][3][8]
-        y1 = numpy.einsum('qca, wqrtickb -> wqrtiakb', fock_hf[:, nocc:, nocc:], tmp1_bar.conj())
-        c2[:, :, :nocc, :nocc] += numpy.einsum('wqrtialb, wqetiajb -> relj', y1, tmp1)
-        c2[:, :, :nocc, :nocc] += numpy.einsum('wqrtkajb, eqrtiajb -> weki', y1, tmp1)
-        c2[:, :, nocc:, nocc:] -= numpy.einsum('wqrtiajd, wqreiajb -> etbd', y1, tmp1)
-        c0_2nd -= 4 * numpy.einsum('qweriajb,qweriajb ->', y1, tmp1).real
-
-        # [4][6][7]
-        y1 = numpy.einsum('qki, qwrtkalb -> qwrtialb', fock_hf[:, :nocc, :nocc], tmp1_bar.conj())
-        c2[:, :, :nocc, :nocc] -= numpy.einsum('qwrtialb, qwetiajb -> relj', y1, tmp1)
-        c2[:, :, nocc:, nocc:] += numpy.einsum('qwrticjb, qertiajb -> ewac', y1, tmp1)
-        c2[:, :, nocc:, nocc:] += numpy.einsum('qwrtiajd, qwreiajb -> etbd', y1, tmp1)
-        c0_2nd += 4 * numpy.einsum('qwrtiajb, qwrtiajb ->', y1, tmp1).real
-        c0_2nd /= nkpts
-
-        # [5]
-        y1 = numpy.einsum('qwrtiajb, ewrtkajb -> eqki', tmp1, tmp1_bar.conj())
-        c2[:, :, :, :nocc] -= numpy.einsum('qpi, eqki -> qepk', fock_hf[:, :, :nocc], y1)
-
-        # [9]
-        y1 = numpy.einsum('qwrtiajb, qerticjb -> weac', tmp1, tmp1_bar.conj())
-        c2[:, :, :, nocc:] -= numpy.einsum('wpa, weac -> wepc', fock_hf[:, :, nocc:], y1)
-
-    c0 = c0_1st + c0_2nd / nkpts
-
-    c1 += numpy.einsum('wwps -> wps', c2)
-
-    i0 = ncore
-    i1 = ncore + nocc_act + nvir_act
-
-    c1 = c1[:, i0:i1, i0:i1]
-
+    c0 /= nkpts
+    c1 += c2
     return c0, c1
 
 
 def inter_BCH(mp, mo_energy, mo_coeff, fock_hf):
-
-    from pyscf.pbc.lib import kpts_helper
-
-    ncore = mp.ncore
-    nocc_act = mp.nocc_act
-    nvir_act = mp.nvir_act
-
-    nmo = mp.nmo
-    nocc = mp.nocc
-    nvir = nmo - nocc
-    nkpts = len(mo_energy)
-    kpts = mp.kpts
-
-    nact = mp.nact
-    ncore = mp.ncore
-    nocc_act = mp.nocc_act
-    nvir_act = mp.nvir_act
-
-    kconserv = kpts_helper.get_kconserv(mp._scf.cell, kpts)
-    fao2mo = mp._scf.with_df.ao2mo
-
-    # ---------- amplitudes ----------
-    tmp1 = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-    tmp1_bar = numpy.zeros_like(tmp1)
-
-    # ---------- integrals ----------
-    h2mo_OVOV = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-
-    h2mo_OVgV = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nact, nvir), dtype=complex)
-
-    h2mo_OVOg = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nact), dtype=complex)
-
-    # ---------- build integrals ----------
-    for ki in range(nkpts):
-        for kj in range(nkpts):
-            for ka in range(nkpts):
-                kb = kconserv[ki, ka, kj]
-
-                # MO blocks
-                o_i = mo_coeff[ki][:, :nocc]  # O
-                o_a = mo_coeff[ka][:, nocc:]  # V
-
-                o_j = mo_coeff[kj][:, :nocc]  # O
-                o_b = mo_coeff[kb][:, nocc:]  # V
-
-                o_gj = mo_coeff[kj][:, ncore : ncore + nact]  # g
-                o_gb = mo_coeff[kb][:, ncore : ncore + nact]  # g
-
-                # (O V | O V)
-                g_OVOV = fao2mo((o_i, o_a, o_j, o_b), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False)
-
-                g_OVOV = g_OVOV.reshape(nocc, nvir, nocc, nvir) / nkpts
-                h2mo_OVOV[ki, ka, kj, kb] = g_OVOV
-
-                # (O V | O g)
-                g_OVOg = fao2mo((o_i, o_a, o_j, o_gb), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False)
-
-                g_OVOg = g_OVOg.reshape(nocc, nvir, nocc, nact) / nkpts
-                h2mo_OVOg[ki, ka, kj, kb] = g_OVOg
-
-                # (O V | g V)
-                g_OVgV = fao2mo((o_i, o_a, o_gj, o_b), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False)
-
-                g_OVgV = g_OVgV.reshape(nocc, nvir, nact, nvir) / nkpts
-                h2mo_OVgV[ki, ka, kj, kb] = g_OVgV
-
-    # print("h2mo_OVgV:\n", h2mo_OVgV)
-    # print("h2mo_OVOg:\n", h2mo_OVOg)
-    # print("h2mo_OVOV:\n", h2mo_OVOV)
-
-    # ---------- build inter T ----------
-    for ki in range(nkpts):
-        for kj in range(nkpts):
-            for ka in range(nkpts):
-                kb = kconserv[ki, ka, kj]
-
-                e_iajb, _, _ = ene_denom(mp, mo_energy, ki, ka, kj, kb)
-                # direct block
-                v_iajb = h2mo_OVOV[ki, ka, kj, kb]
-
-                # exchange block  (i a | j b) -> (i b | j a)
-                v_ex = h2mo_OVOV[ki, kb, kj, ka].transpose(0, 3, 2, 1)
-
-                w_iajb = v_iajb - 0.5 * v_ex
-
-                # tmp1  (direct)
-                tmp1[ki, ka, kj, kb][:nocc, nocc:, :nocc, nocc:] = (
-                    v_iajb[:nocc, nocc:, :nocc, nocc:] / e_iajb[:nocc, nocc:, :nocc, nocc:]
-                ).conj()
-
-                # tmp1_bar (antisym)
-                tmp1_bar[ki, ka, kj, kb][:nocc, nocc:, :nocc, nocc:] = (
-                    w_iajb[:nocc, nocc:, :nocc, nocc:] / e_iajb[:nocc, nocc:, :nocc, nocc:]
-                ).conj()
-
-    # print("tmp1_bar\n", tmp1_bar)
-    # print("tmp1\n", tmp1)
-
-    # ===============================
-    # slice tmp1 blocks (inter-space)
-    # ===============================
-
-    occ_act = slice(ncore, ncore + nocc_act)
-    vir_act = slice(0, nvir_act)  # chỉ đúng nếu active vir ở đầu
-
-    # ---------------- tmp1_bar ----------------
-
-    tmp1_bar_OVov = tmp1_bar[:, :, :, :, :, :, occ_act, vir_act]
-    tmp1_bar_OVoV = tmp1_bar[:, :, :, :, :, :, occ_act, :]
-    tmp1_bar_oVOV = tmp1_bar[:, :, :, :, occ_act, :, :, :]
-    tmp1_bar_OVOv = tmp1_bar[:, :, :, :, :, :, :, vir_act]
-    tmp1_bar_OvOV = tmp1_bar[:, :, :, :, :, vir_act, :, :]
-
-    # ---------------- tmp1 ----------------
-
-    tmp1_OVoV = tmp1[:, :, :, :, :, :, occ_act, :]
-    tmp1_oVOV = tmp1[:, :, :, :, occ_act, :, :, :]
-    tmp1_OVOv = tmp1[:, :, :, :, :, :, :, vir_act]
-    tmp1_OvOV = tmp1[:, :, :, :, :, vir_act, :, :]
-
-    # ============================================================
-    # BCH first order
-    # ============================================================
-    c1_1st = numpy.zeros((nkpts, nkpts, nact, nact), dtype=complex)
-
-    c1_1st[:, :, nocc_act:, :nocc_act] += 2 * numpy.einsum(
-        'qai, qqeriajb -> rebj', fock_hf[:, nocc:, :nocc].conj(), tmp1_bar_OVov
-    )
-
-    c1_1st[:, :, :, :nocc_act] += 2 * numpy.einsum('qweriajb, qwtriapb -> tepj', tmp1_bar_OVoV, h2mo_OVgV)
-
-    # ?????
-    c1_1st[:, :, :, nocc_act:] -= 2 * numpy.einsum('qwetiajb, qweriajp -> rtpb', tmp1_bar_OVOv, h2mo_OVOg)
-
-    c1_1st = numpy.einsum('wwpq -> wpq', c1_1st)
-
-    # ============================================================
-    # BCH second order
-    # ============================================================
-
-    # BCH2 default
-    mp.ampf = 1.0
-    tmp1 *= mp.ampf
-    tmp1_bar *= mp.ampf
-
-    c1_2nd = numpy.zeros((nkpts, nkpts, nact, nact), dtype=complex)
-
-    if mp.second_order:
-        # [1]
-        y1 = 2 * numpy.einsum('qai, qqeriajb -> erjb', fock_hf[:, nocc:, :nocc].conj(), tmp1_bar)
-        c1_2nd[:, :, nocc_act:, :nocc_act] = numpy.einsum('erjb, erqtjbkc -> tqck', y1, tmp1_bar_OVov.conj())
-
-        # [2][3][8]
-        y1 = numpy.einsum('qca, wqrtickb -> wqrtiakb', fock_hf[:, nocc:, nocc:], tmp1_bar_OVoV.conj())
-        c1_2nd[:, :, :nocc_act, :nocc_act] += numpy.einsum('wqrtialb, wqetiajb -> relj', y1, tmp1_OVoV)
-
-        y1 = numpy.einsum('qca, wqrtkcjb -> wqrtkajb', fock_hf[:, nocc:, nocc:], tmp1_bar_oVOV.conj())
-
-        c1_2nd[:, :, :nocc_act, :nocc_act] += numpy.einsum('wqrtkajb, eqrtiajb -> weki', y1, tmp1_oVOV)
-
-        y1 = numpy.einsum('qca, wqrtickb -> wqrtiakb', fock_hf[:, nocc:, nocc:], tmp1_bar_OVOv.conj())
-        c1_2nd[:, :, nocc_act:, nocc_act:] -= numpy.einsum('wqrtiajd, wqreiajb -> etbd', y1, tmp1_OVOv)
-
-        # [4][6][7]
-        y1 = numpy.einsum('qki, qwrtkalb -> qwrtialb', fock_hf[:, :nocc, :nocc], tmp1_bar_OVoV.conj())
-        c1_2nd[:, :, :nocc_act, :nocc_act] -= numpy.einsum('qwrtialb, qwetiajb -> relj', y1, tmp1_OVoV)
-
-        y1 = numpy.einsum('qki, qwrtkcjb -> qwrticjb', fock_hf[:, :nocc, :nocc], tmp1_bar_OVOv.conj())
-
-        c1_2nd[:, :, nocc_act:, nocc_act:] += numpy.einsum('qwrticjb, qerticjd -> ewdb', y1, tmp1_OVOv)
-
-        y1 = numpy.einsum('qki, qwrtkdja -> qwrtidja', fock_hf[:, :nocc, :nocc], tmp1_bar_OvOV.conj())
-        c1_2nd[:, :, nocc_act:, nocc_act:] += numpy.einsum('qwrtidja, qwreibja -> etbd', y1, tmp1_OvOV)
-
-        # [5]
-        y1 = numpy.einsum('qwrtiajb, ewrtkajb -> eqki', tmp1, tmp1_bar_oVOV.conj())
-        c1_2nd[:, :, :, :nocc_act] -= numpy.einsum('qpi, eqki -> qepk', fock_hf[:, ncore : ncore + nact, :nocc], y1)
-
-        # [9]
-        y1 = numpy.einsum('qwrtiajb, qerticjb -> weac', tmp1, tmp1_bar_OvOV.conj())
-        c1_2nd[:, :, :, nocc_act:] -= numpy.einsum('wpa, weac -> wepc', fock_hf[:, ncore : ncore + nact, nocc:], y1)
-
-    c1_2nd = numpy.einsum('wwpq -> wpq', c1_2nd)
-
-    c1 = c1_1st + c1_2nd
-    return c1
-
-
-def active_BCH_loop(mp, mo_energy, mo_coeff, fock_hf_act):
     import numpy
     from pyscf.pbc.lib import kpts_helper
 
-    nmo = mp.nmo
-    nocc = mp.nocc
-    nvir = nmo - nocc
-    nkpts = numpy.shape(mo_energy)[0]
-    kpts = mp.kpts
-
-    ncore = mp.ncore
-
-    nact = mp.nact
-    nocc_act = mp.nocc_act
-    nvir_act = mp.nvir_act
-
-    occ_act = slice(ncore, ncore + nocc_act)
-    vir_act = slice(0, nvir_act)
-
-    kconserv = kpts_helper.get_kconserv(mp._scf.cell, kpts)
-    fao2mo = mp._scf.with_df.ao2mo
-
-    fock_hf_act = numpy.array(fock_hf_act)
-
-    # --- T2 amplitudes (active-only filled later) ---
-    tmp1_act = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
-    tmp1_bar_act = numpy.zeros_like(tmp1_act)
-
-    # --- Needed MO integrals ---
-    h2mo_ovgg = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nact, nact), dtype=complex)
-    h2mo_ovov = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nocc_act, nvir_act), dtype=complex)
-    h2mo_ovog = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nocc_act, nact), dtype=complex)
-    h2mo_ovgv = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc_act, nvir_act, nact, nvir_act), dtype=complex)
-
-    # ============================================================
-    # AO → MO integrals
-    # ============================================================
-    for ki in range(nkpts):
-        for kj in range(nkpts):
-            for ka in range(nkpts):
-                kb = kconserv[ki, ka, kj]
-
-                # occupied active
-                o_i = mo_coeff[ki][:, ncore : ncore + nocc_act]
-
-                # virtual active
-                o_a = mo_coeff[ka][:, ncore + nocc_act : ncore + nocc_act + nvir_act]
-
-                # full active
-                o_j = mo_coeff[kj][:, ncore : ncore + nact]
-                o_b = mo_coeff[kb][:, ncore : ncore + nact]
-
-                h2mo_ovgg[ki, ka, kj, kb] = (
-                    fao2mo((o_i, o_a, o_j, o_b), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False).reshape(
-                        nocc_act, nvir_act, nact, nact
-                    )
-                    / nkpts
-                )
-
-                h2mo_ovov[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :nocc_act, nocc_act:]
-                h2mo_ovog[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :nocc_act, :]
-                h2mo_ovgv[ki, ka, kj, kb] = h2mo_ovgg[ki, ka, kj, kb][:, :, :, nocc_act:]
-
-    # ============================================================
-    # Build active T2 amplitudes
-    # ============================================================
-    for ki in range(nkpts):
-        for kj in range(nkpts):
-            for ka in range(nkpts):
-                kb = kconserv[ki, ka, kj]
-
-                e_iajb, _, _ = ene_denom(mp, mo_energy, ki, ka, kj, kb)
-
-                w_iajb = h2mo_ovov[ki, ka, kj, kb] - 0.5 * h2mo_ovov[ki, kb, kj, ka].transpose(0, 3, 2, 1)
-
-                o = slice(0, nocc_act)
-                v = slice(0, nvir_act)
-
-                tmp1_act[ki, ka, kj, kb][o, v, o, v] = (
-                    h2mo_ovov[ki, ka, kj, kb][o, v, o, v] / e_iajb[o, v, o, v]
-                ).conj()
-
-                tmp1_bar_act[ki, ka, kj, kb][o, v, o, v] = (w_iajb[o, v, o, v] / e_iajb[o, v, o, v]).conj()
-
-    c1_1st = numpy.zeros((nkpts, nact, nact), dtype=complex)
-    c0_1st = 0.0
-
-    c1_2nd = numpy.zeros_like(c1_1st)
-    c0_2nd = 0.0
-
-    for ki in range(nkpts):
-        for ka in range(nkpts):
-            for kj in range(nkpts):
-                kb = kconserv[ki, ka, kj]
-
-                tbar = tmp1_bar_act[ki, ka, kj, kb]
-                hovgv = h2mo_ovgv[ki, ka, kj, kb]
-                hovog = h2mo_ovog[ki, ka, kj, kb]
-                hovov = h2mo_ovov[ki, ka, kj, kb]
-
-                # ============================================================
-                # BCH first order
-                # ============================================================
-
-                # [1] ovgv
-                c1_1st[ki, :, :nocc_act] += 2.0 * numpy.einsum('iajb,iapb->pj', tbar, hovgv, optimize=True)
-
-                # [2] ovog
-                c1_1st[ki, nocc_act:, :] -= 2.0 * numpy.einsum('iajb,iajp->bp', tbar, hovog, optimize=True)
-
-                # [3] fock contraction
-                f_act = fock_hf_act[ki]
-
-                c1_1st[ki, nocc_act:, :nocc_act] += 2.0 * numpy.einsum('ai,iajb->jb', f_act.conj(), tbar, optimize=True)
-
-                # scalar energy
-                c0_1st -= 4.0 * numpy.einsum('iajb,iajb->', tbar, hovov, optimize=True).real / nkpts
-
-                # ============================================================
-                # BCH second order
-                # ============================================================
-
-                # BCH2 default
-                mp.ampf = 1.0
-
-                t1 = tmp1_act[ki, ka, kj, kb] * mp.ampf
-                tbar = tmp1_bar_act[ki, ka, kj, kb] * mp.ampf
-
-                f_i = fock_hf_act[ki][:nocc_act, :nocc_act]
-                f_a = fock_hf_act[ka][nocc_act:, nocc_act:]
-                f_ia = fock_hf_act[ki][:nocc_act, nocc_act:]
-
-                # ---------- [1]
-                y1 = 2.0 * numpy.einsum('ia,iajb->jb', f_ia, tbar, optimize=True)
-
-                c1_2nd[ki, :nocc_act, :nocc_act] += numpy.einsum('jb,iajb->ij', y1, t1, optimize=True)
-
-                # ---------- [2][3]
-                y1 = numpy.einsum('ac,icjb->iajb', f_a, tbar.conj(), optimize=True)
-
-                c1_2nd[ki, :nocc_act, :nocc_act] += numpy.einsum('iajb,iajb->ij', y1, t1, optimize=True)
-
-                c1_2nd[ki, nocc_act:, nocc_act:] -= numpy.einsum('iajb,iajb->ab', y1, t1, optimize=True)
-
-                c0_2nd -= 4.0 * numpy.einsum('iajb,iajb->', y1, t1, optimize=True).real
-
-                # ---------- [4]
-                y1 = numpy.einsum('ki,kajb->iajb', f_i, tbar.conj(), optimize=True)
-
-                c1_2nd[ki, :nocc_act, :nocc_act] -= numpy.einsum('iajb,iajb->ij', y1, t1, optimize=True)
-
-                c1_2nd[ki, nocc_act:, nocc_act:] += numpy.einsum('iajb,iajb->ab', y1, t1, optimize=True)
-
-                c0_2nd += 4.0 * numpy.einsum('iajb,iajb->', y1, t1, optimize=True).real
-
-    c0_2nd /= nkpts
-
-    c0 = c0_1st + c0_2nd
-    c1 = c1_1st + c1_2nd
-    return c0, c1
-
-
-def inter_BCH_loop(mp, mo_energy, mo_coeff, fock_hf):
-
-    from pyscf.pbc.lib import kpts_helper
-
     ncore = mp.ncore
     nocc_act = mp.nocc_act
     nvir_act = mp.nvir_act
@@ -945,222 +399,164 @@ def inter_BCH_loop(mp, mo_energy, mo_coeff, fock_hf):
     kpts = mp.kpts
 
     nact = mp.nact
-    ncore = mp.ncore
-    nocc_act = mp.nocc_act
-    nvir_act = mp.nvir_act
 
     kconserv = kpts_helper.get_kconserv(mp._scf.cell, kpts)
     fao2mo = mp._scf.with_df.ao2mo
 
-    # ---------- amplitudes ----------
-    tmp1 = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
-    tmp1_bar = numpy.zeros_like(tmp1)
+    # [BẢO TOÀN]: Định nghĩa Slices
+    occ_act = slice(ncore, ncore + nocc_act)
+    vir_act = slice(0, nvir_act)  # Chỉ đúng nếu active vir ở đầu
 
-    # ---------- integrals ----------
-    h2mo_OVOV = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    # --- Khởi tạo mảng theo cấu trúc tối ưu bộ nhớ MỚI ---
+    # Thay vì 8D, ta dùng 5D. Các tính toán nội không gian (inter-space) dùng nocc và nvir
+    tmp1 = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    tmp1_bar = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
 
-    h2mo_OVgV = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nact, nvir), dtype=complex)
+    # Mảng lưu trữ cho bậc 2
+    tmp_bar_OVov_stored = numpy.zeros((nkpts, nkpts, nocc, nvir, nocc_act, nvir_act), dtype=complex)
 
-    h2mo_OVOg = numpy.zeros((nkpts, nkpts, nkpts, nkpts, nocc, nvir, nocc, nact), dtype=complex)
+    h2mo_OVOV = numpy.zeros((nkpts, nocc, nvir, nocc, nvir), dtype=complex)
+    h2mo_OVgV = numpy.zeros((nkpts, nocc, nvir, nact, nvir), dtype=complex)
+    h2mo_OVOg = numpy.zeros((nkpts, nocc, nvir, nocc, nact), dtype=complex)
 
-    # ---------- build integrals ----------
+    c1 = numpy.zeros((nkpts, nact, nact), dtype=complex)
+    c2 = numpy.zeros((nkpts, nact, nact), dtype=complex)
+
+    # Mảng cộng dồn trung gian cho Bậc 2
+    y1 = numpy.zeros((nkpts, nocc, nvir), dtype=complex)
+    y2_OVoV = numpy.zeros((nkpts, nocc, nvir, nocc_act, nvir), dtype=complex)
+    y2_oVOV = numpy.zeros((nkpts, nocc_act, nvir, nocc, nvir), dtype=complex)
+    y2_OVOv = numpy.zeros((nkpts, nocc, nvir, nocc, nvir_act), dtype=complex)
+
+    y3_OVoV = numpy.zeros((nkpts, nocc, nvir, nocc_act, nvir), dtype=complex)
+    y3_OVOv = numpy.zeros((nkpts, nocc, nvir, nocc, nvir_act), dtype=complex)
+    y3_OvOV = numpy.zeros((nkpts, nocc, nvir_act, nocc, nvir), dtype=complex)
+
+    y4 = numpy.zeros((nkpts, nocc_act, nocc), dtype=complex)
+    y5 = numpy.zeros((nkpts, nvir, nvir_act), dtype=complex)
+
+    # ============================================================
+    # Vòng lặp tối ưu bộ nhớ (Tính toán trên từng cặp ki, kj)
+    # ============================================================
     for ki in range(nkpts):
         for kj in range(nkpts):
+            # 1. Build Integrals (Inter-space)
             for ka in range(nkpts):
                 kb = kconserv[ki, ka, kj]
 
-                # MO blocks
                 o_i = mo_coeff[ki][:, :nocc]  # O
                 o_a = mo_coeff[ka][:, nocc:]  # V
-
                 o_j = mo_coeff[kj][:, :nocc]  # O
                 o_b = mo_coeff[kb][:, nocc:]  # V
-
                 o_gj = mo_coeff[kj][:, ncore : ncore + nact]  # g
                 o_gb = mo_coeff[kb][:, ncore : ncore + nact]  # g
 
-                # (O V | O V)
+                # Tính (O V | O V)
                 g_OVOV = fao2mo((o_i, o_a, o_j, o_b), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False)
+                h2mo_OVOV[ka] = g_OVOV.reshape(nocc, nvir, nocc, nvir) / nkpts
 
-                g_OVOV = g_OVOV.reshape(nocc, nvir, nocc, nvir) / nkpts
-                h2mo_OVOV[ki, ka, kj, kb] = g_OVOV
-
-                # (O V | O g)
+                # Tính (O V | O g)
                 g_OVOg = fao2mo((o_i, o_a, o_j, o_gb), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False)
+                h2mo_OVOg[ka] = g_OVOg.reshape(nocc, nvir, nocc, nact) / nkpts
 
-                g_OVOg = g_OVOg.reshape(nocc, nvir, nocc, nact) / nkpts
-                h2mo_OVOg[ki, ka, kj, kb] = g_OVOg
-
-                # (O V | g V)
+                # Tính (O V | g V)
                 g_OVgV = fao2mo((o_i, o_a, o_gj, o_b), (kpts[ki], kpts[ka], kpts[kj], kpts[kb]), compact=False)
+                h2mo_OVgV[ka] = g_OVgV.reshape(nocc, nvir, nact, nvir) / nkpts
 
-                g_OVgV = g_OVgV.reshape(nocc, nvir, nact, nvir) / nkpts
-                h2mo_OVgV[ki, ka, kj, kb] = g_OVgV
-
-    # print("h2mo_OVgV:\n", h2mo_OVgV)
-    # print("h2mo_OVOg:\n", h2mo_OVOg)
-    # print("h2mo_OVOV:\n", h2mo_OVOV)
-
-    # ---------- build inter T ----------
-    for ki in range(nkpts):
-        for kj in range(nkpts):
+            # 2. Xây dựng Amplitudes và cộng dồn Bậc 1 & Bậc 2
             for ka in range(nkpts):
                 kb = kconserv[ki, ka, kj]
 
-                e_iajb, _, _ = ene_denom(mp, mo_energy, ki, ka, kj, kb)
-                # direct block
-                v_iajb = h2mo_OVOV[ki, ka, kj, kb]
+                e_iajb = ene_denom(mp, mo_energy, ki, ka, kj, kb)[0]
 
-                # exchange block  (i a | j b) -> (i b | j a)
-                v_ex = h2mo_OVOV[ki, kb, kj, ka].transpose(0, 3, 2, 1)
-
+                v_iajb = h2mo_OVOV[ka]
+                v_ex = h2mo_OVOV[kb].transpose(0, 3, 2, 1)
                 w_iajb = v_iajb - 0.5 * v_ex
 
-                # tmp1  (direct)
-                tmp1[ki, ka, kj, kb][:nocc, nocc:, :nocc, nocc:] = (
-                    v_iajb[:nocc, nocc:, :nocc, nocc:] / e_iajb[:nocc, nocc:, :nocc, nocc:]
-                ).conj()
+                # Tính tmp1, tmp1_bar trên toàn không gian O/V
+                tmp1[ka] = (v_iajb / e_iajb).conj()
+                tmp1_bar[ka] = (w_iajb / e_iajb).conj()
 
-                # tmp1_bar (antisym)
-                tmp1_bar[ki, ka, kj, kb][:nocc, nocc:, :nocc, nocc:] = (
-                    w_iajb[:nocc, nocc:, :nocc, nocc:] / e_iajb[:nocc, nocc:, :nocc, nocc:]
-                ).conj()
+                mp.ampf = getattr(mp, 'ampf', 1.0)
+                tmp1[ka] *= mp.ampf
+                tmp1_bar[ka] *= mp.ampf
 
-    # print("tmp1_bar\n", tmp1_bar)
-    # print("tmp1\n", tmp1)
+                # ===============================
+                # Lấy Slice trực tiếp trong vòng lặp
+                # ===============================
+                t_bar_OVov = tmp1_bar[ka][:, :, occ_act, vir_act]
+                t_bar_OVoV = tmp1_bar[ka][:, :, occ_act, :]
+                t_bar_oVOV = tmp1_bar[ka][occ_act, :, :, :]
+                t_bar_OVOv = tmp1_bar[ka][:, :, :, vir_act]
+                t_bar_OvOV = tmp1_bar[ka][:, vir_act, :, :]
 
-    # ====================================================================================================
-    # BCH term (periodic)
-    # ====================================================================================================
-    c1_1st = numpy.zeros((nkpts, nact, nact), dtype=complex)
-    c1_2nd = numpy.zeros((nkpts, nact, nact), dtype=complex)
+                t_OVoV = tmp1[ka][:, :, occ_act, :]
+                t_oVOV = tmp1[ka][occ_act, :, :, :]
+                t_OVOv = tmp1[ka][:, :, :, vir_act]
+                t_OvOV = tmp1[ka][:, vir_act, :, :]
 
-    for ki in range(nkpts):
-        for ka in range(nkpts):
-            for kj in range(nkpts):
-                kb = kconserv[ki, ka, kj]
+                # ============================================================
+                # BCH First Order
+                # ============================================================
+                if ki == ka:
+                    c1[kj, nocc_act:, :nocc_act] += 2 * numpy.einsum(
+                        'ai, iajb -> bj', fock_hf[ka, nocc:, :nocc].conj(), t_bar_OVov
+                    )
 
-                tmp1_OVOV = tmp1[ki, ka, kj, kb]
-                tmp1_bar_OVOV = tmp1_bar[ki, ka, kj, kb]
+                c1[kj, :, :nocc_act] += 2 * numpy.einsum('iajb, iapb -> pj', t_bar_OVoV, h2mo_OVgV[ka])
 
-                h2_OVgV = h2mo_OVgV[ki, ka, kj, kb]
-                h2_OVOg = h2mo_OVOg[ki, ka, kj, kb]
-                h2_OVOV = h2mo_OVOV[ki, ka, kj, kb]
+                # [SỬA LỖI SLICE ?????]: Chuẩn hóa lại einsum theo shape thực tế của inter_BCH cũ (rtpb -> pb)
+                c1[kb, :, nocc_act:] -= 2 * numpy.einsum('iajb, iajp -> pb', t_bar_OVOv, h2mo_OVOg[ka])
 
-                # Slice tmp1 and tmp1_bar blocks
-                """
-                tmp1_bar_OVov = tmp1_bar_OVOV[:, :, ncore:ncore+nocc_act, :nvir_act]
-                tmp1_bar_OVoV = tmp1_bar_OVOV[:, :, ncore:ncore+nocc_act, :]
-                tmp1_bar_oVOV = tmp1_bar_OVOV[ncore:, :, :, :]
-                tmp1_bar_OVOv = tmp1_bar_OVOV[:, :, :, :nvir_act]
-                tmp1_bar_OvOV = tmp1_bar_OVOV[:, :nvir_act, :, :]
+                # ============================================================
+                # BCH Second Order
+                # ============================================================
+                if hasattr(mp, 'second_order') and mp.second_order:
+                    # [1]
+                    if ki == ka:
+                        # y1[kj] += 2 * numpy.einsum('ai, iajb -> bj', fock_hf[ka, nocc:, :nocc].conj(), tmp1_bar[ka])
+                        y1[kj] += 2 * numpy.einsum('ai, iajb -> jb', fock_hf[ka, nocc:, :nocc].conj(), tmp1_bar[ka])
+                        tmp_bar_OVov_stored[ki, kj] = t_bar_OVov
 
-                tmp1_OVoV = tmp1_OVOV[:, :, ncore:ncore+nocc_act, :]
-                tmp1_oVOV = tmp1_OVOV[ncore:, :, :, :]
-                tmp1_OVOv = tmp1_OVOV[:, :, :, :nvir_act]
-                tmp1_OvOV = tmp1_OVOV[:, :nvir_act, :, :]
-                """
+                    # [2][3][8]
+                    y2_OVoV[ka] = numpy.einsum('ca, iclb -> ialb', fock_hf[ka, nocc:, nocc:], t_bar_OVoV.conj())
+                    y2_oVOV[ka] = numpy.einsum('ca, kcjb -> kajb', fock_hf[ka, nocc:, nocc:], t_bar_oVOV.conj())
+                    y2_OVOv[ka] = numpy.einsum('ca, ickb -> iakb', fock_hf[ka, nocc:, nocc:], t_bar_OVOv.conj())
 
-                occ_act = slice(ncore, ncore + nocc_act)
-                vir_act = slice(0, nvir_act)  # chỉ đúng nếu active vir ở đầu
+                    c2[kj, :nocc_act, :nocc_act] += numpy.einsum('ialb, iajb -> lj', y2_OVoV[ka], t_OVoV)
+                    c2[ki, :nocc_act, :nocc_act] += numpy.einsum('kajb, iajb -> ki', y2_oVOV[ka], t_oVOV)
+                    c2[kb, nocc_act:, nocc_act:] -= numpy.einsum('iajd, iajb -> bd', y2_OVOv[ka], t_OVOv)
 
-                # ---------------- tmp1_bar ----------------
+                    # [4][6][7]
+                    y3_OVoV[ka] = numpy.einsum('ki, kalb -> ialb', fock_hf[ki, :nocc, :nocc], t_bar_OVoV.conj())
+                    y3_OVOv[ka] = numpy.einsum('ki, kcjb -> icjb', fock_hf[ki, :nocc, :nocc], t_bar_OVOv.conj())
+                    y3_OvOV[ka] = numpy.einsum('ki, kdja -> idja', fock_hf[ki, :nocc, :nocc], t_bar_OvOV.conj())
 
-                tmp1_bar_OVov = tmp1_bar_OVOV[:, :, occ_act, vir_act]
-                tmp1_bar_OVoV = tmp1_bar_OVOV[:, :, occ_act, :]
-                tmp1_bar_oVOV = tmp1_bar_OVOV[occ_act, :, :, :]
-                tmp1_bar_OVOv = tmp1_bar_OVOV[:, :, :, vir_act]
-                tmp1_bar_OvOV = tmp1_bar_OVOV[:, vir_act, :, :]
+                    c2[kj, :nocc_act, :nocc_act] -= numpy.einsum('ialb, iajb -> lj', y3_OVoV[ka], t_OVoV)
+                    c2[ka, nocc_act:, nocc_act:] += numpy.einsum('icjb, icjd -> db', y3_OVOv[ka], t_OVOv)
+                    # c2[kb, nocc_act:, nocc_act:] -= numpy.einsum('idja, ibja -> bd', y3_OvOV[ka], t_OvOV)
+                    c2[kb, nocc_act:, nocc_act:] += numpy.einsum('idja, ibja -> bd', y3_OvOV[ka], t_OvOV)
 
-                # ---------------- tmp1 ----------------
+                    # [5] và [9]
+                    y4[ki] += numpy.einsum('iajb, kajb -> ki', tmp1[ka], t_bar_oVOV.conj())
+                    y5[ki] += numpy.einsum('iajb, icjb -> ac', tmp1[ka], t_bar_OvOV.conj())
 
-                tmp1_OVoV = tmp1_OVOV[:, :, occ_act, :]
-                tmp1_oVOV = tmp1_OVOV[occ_act, :, :, :]
-                tmp1_OVOv = tmp1_OVOV[:, :, :, vir_act]
-                tmp1_OvOV = tmp1_OVOV[:, vir_act, :, :]
+    # --- Tổng hợp c2 bên ngoài vòng lặp ---
+    if hasattr(mp, 'second_order') and mp.second_order:
+        for ki in range(nkpts):
+            # [1]
+            c2[ki, nocc_act:, :nocc_act] += numpy.einsum(
+                'qjb, qjbkc -> ck', y1, tmp_bar_OVov_stored[:, ki, :, :, :, :].conj()
+            )
 
-                ##=========================================================================================##
-                ## ---------------------------------------------------------------------------------------+||
-                ## 1st BCH                                                                                |||
-                ## ---------------------------------------------------------------------------------------+||
-                ##=========================================================================================##
+            # [5]
+            c2[ki, :, :nocc_act] -= numpy.einsum('pi, ki -> pk', fock_hf[ki, ncore : ncore + nact, :nocc], y4[ki])
 
-                # 1) c1[:, :nocc_act]: +4 * einsum('iajb,iapb->pj')
-                c1_1st[ki, :, :nocc_act] += 2.0 * numpy.einsum('iajb,iapb->pj', tmp1_bar_OVoV, h2_OVgV, optimize=True)
-                # c1[:, :nocc_act] += 4.0 * lib.einsum('iajb,iapb->pj', tmp1_bar_OVoV, h2mo_OVgV)
+            # [9]
+            c2[ki, :, nocc_act:] -= numpy.einsum('pa, ac -> pc', fock_hf[ki, ncore : ncore + nact, nocc:], y5[ki])
 
-                # 2) c1[:, nocc_act:]: -4 * einsum('iajb,iajp->pb')
-                c1_1st[ki, :, nocc_act:] -= 2.0 * numpy.einsum('iajb,iajp->pb', tmp1_bar_OVOv, h2_OVOg, optimize=True)
-                # c1[:, nocc_act:] -= 4.0 * lib.einsum('iajb,iajp->pb', tmp1_bar_OVOv, h2mo_OVOg)
-
-                # 3) Fock contraction term: +4 * einsum('iajb,ia->jb')
-                fock_hf_occ_vir = fock_hf[ki][:nocc, nocc:]
-
-                c1_1st[ki, :nocc_act, nocc_act:] += 2.0 * numpy.einsum(
-                    'iajb,ia->jb', tmp1_bar_OVov, fock_hf_occ_vir, optimize=True
-                )
-                # c1[:nocc_act, nocc_act:] += 4.0 * lib.einsum('ijkl,ij->kl', tmp1_bar_OVov, fock_block)
-
-                # Fock blocks (full space, no truncation)
-                fock_i = fock_hf[ki]
-                fock_a = fock_hf[ka]
-
-                f_i = fock_i[:nocc, :nocc]  # fock[ki][core:core]
-                f_a = fock_a[nocc:, nocc:]  # fock[ka][vir:vir]
-                f_ia = fock_i[:nocc, nocc:]  # fock[ki][core:vir]
-
-                f_act_occ = fock_i[ncore : ncore + nact, :nocc]
-                f_act_vir = fock_a[ncore : ncore + nact, nocc:]
-
-                ##===================================================================================================:
-                ## -------------------------------------------------------------------------------------------------:|
-                ## 2nd BCH                                                                                          ||
-                ## -------------------------------------------------------------------------------------------------:|
-                ##===================================================================================================:
-
-                mp.ampf = 1
-
-                tmp1_OVOV *= mp.ampf
-                tmp1_bar_OVOV *= mp.ampf
-
-                # [1] f(i,a) with tmp1_bar  (double contraction)
-                y1 = 2.0 * numpy.einsum('ia,iajb->jb', f_ia, tmp1_bar_OVOV, optimize=True)
-                c1_2nd[ki, :nocc_act, nocc_act:] += 2.0 * numpy.einsum('jb,iajb->ij', y1, tmp1_bar_OVov, optimize=True)
-
-                # [2] f(a,c) – OV-oV
-                y1 = numpy.einsum('ac,kcjb->kajb', f_a, tmp1_bar_OVoV, optimize=True)
-                c1_2nd[ki, :nocc_act, :nocc_act] += 2.0 * numpy.einsum('iajb,iakb->jk', tmp1_OVoV, y1, optimize=True)
-
-                # [3] f(a,c) – oVOV
-                y1 = numpy.einsum('ac,kcjb->kajb', f_a, tmp1_bar_oVOV, optimize=True)
-                c1_2nd[ki, :nocc_act, :nocc_act] += 2.0 * numpy.einsum('iajb,kajb->ik', tmp1_oVOV, y1, optimize=True)
-
-                # [4] f(i,k) – OV-oV
-                y1 = numpy.einsum('ik,kalb->ialb', f_i, tmp1_bar_OVoV, optimize=True)
-                c1_2nd[ki, :nocc_act, :nocc_act] -= 2.0 * numpy.einsum('iajb,ialb->jl', tmp1_OVoV, y1, optimize=True)
-
-                # [5] mixing tmp1 & tmp1_bar (occupied projection)
-                y1 = numpy.einsum('iajb,kajb->ik', tmp1_OVOV, tmp1_bar_oVOV, optimize=True)
-                c1_2nd[ki, :, :nocc_act] -= 2.0 * numpy.einsum('pi,ik->pk', f_act_occ, y1, optimize=True)
-
-                # [6] f(i,k) – OV-Ov block
-                y1 = numpy.einsum('ik,kajd->iajd', f_i, tmp1_bar_OVOv, optimize=True)
-                c1_2nd[ki, nocc_act:, nocc_act:] += 2.0 * numpy.einsum('iajb,iajd->bd', tmp1_OVOv, y1, optimize=True)
-
-                # [7] contractions with OvOV block
-                y1 = numpy.einsum('ik,kcjd->icjd', f_i, tmp1_bar_OvOV, optimize=True)
-                c1_2nd[ki, nocc_act:, nocc_act:] += 2.0 * numpy.einsum('iajb,icjb->ac', tmp1_OvOV, y1, optimize=True)
-
-                # [8] contractions with fock(a,c) and OV-Ov
-                y1 = numpy.einsum('ac,icjd->iajd', f_a, tmp1_bar_OVOv, optimize=True)
-                c1_2nd[ki, nocc_act:, nocc_act:] -= 2.0 * numpy.einsum('iajb,iajd->bd', tmp1_OVOv, y1, optimize=True)
-
-                # [9] contractions mixing tmp1 and OvOV block
-                y1 = numpy.einsum('iajb,icjb->ac', tmp1_OVOV, tmp1_bar_OvOV, optimize=True)
-                c1_2nd[ki, :, nocc_act:] -= 2.0 * numpy.einsum('pa,ac->pc', f_act_vir, y1, optimize=True)
-
-    c1 = c1_1st + c1_2nd
-
+    # Trả về kết quả
+    c1 += c2
     return c1
 
 

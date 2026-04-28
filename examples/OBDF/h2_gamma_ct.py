@@ -5,6 +5,8 @@ import copy
 from pycmf.OBMP import kobmp2
 from pycmf.OBDF import krobdf
 from pyscf.pbc.lib import kpts_helper
+from pyscf import fci
+from pyscf.pbc import df
 
 # ============================================================
 # 1. Build cell
@@ -19,6 +21,7 @@ cell.basis = '6-31g'
 # cell.basis = 'gth-szv'
 # cell.pseudo = 'gth-pade'
 cell.a = np.eye(3) * 50
+# cell.dimension = 0
 cell.gs = [100, 100, 100]
 cell.build()
 
@@ -30,7 +33,11 @@ kpts = cell.make_kpts(nk)
 # 2. KRHF
 # ============================================================
 
-kmf = scf.KRHF(cell, kpts).run()
+# kmf = scf.KRHF(cell, kpts).run()
+
+kmf = scf.KRHF(cell, kpts)
+kmf.with_df = df.GDF(cell, kpts)  # Sử dụng Gaussian Density Fitting
+kmf.run()
 
 # ============================================================
 # 3. kOBMP2
@@ -70,6 +77,42 @@ Nk = Nkx * Nky * Nkz
 kmf.mo_coeff = krobmp.mo_coeff.copy()
 kmf.mo_energy = krobmp.mo_energy.copy()
 
+# ============================================================
+# 5. FCI (KHÔNG WANNIER) để kiểm chứng
+# ============================================================
+print('\n' + '=' * 40)
+print('TÍNH TOÁN FCI TRÊN HAMILTONIAN DOWNFOLD')
+print('=' * 40)
+
+# 1. Trích xuất Hamiltonian tại điểm Gamma và CHUYỂN SANG SỐ THỰC
+# (Bắt buộc phải dùng .real vì fci.direct_spin1 không nhận số phức)
+h1_fci = h1_eff_k[0].real
+h2_fci = h2_k[0, 0, 0, 0].real
+
+# 2. Thiết lập không gian Active
+norb_act = krobact.nact
+nelecas = (krobact.nocc_act, krobact.nocc_act)  # (số e alpha, số e beta) = (1, 1) cho H2
+
+# 3. Khởi tạo FCI solver
+cis = fci.direct_spin1.FCI()
+cis.nroots = 1  # Chỉ lấy trạng thái cơ bản
+
+# 4. Giải FCI
+e_fci_act, wfci = cis.kernel(h1_fci, h2_fci, norb_act, nelecas)
+
+print(f'> E_FCI_active (Gamma-point PBC) = {e_fci_act:.10f} Hartree')
+
+# ============================================================
+# In ma trận để so sánh trực tiếp với bản Phân tử
+# ============================================================
+print('\n> So sánh Ma trận h1_eff (Gamma) với phân tử:')
+print(h1_fci)
+
+# Note: In ra phần tử đặc trưng của h2 để đối chiếu
+print(f'\n> Kiểm tra h2_eff[0,0,0,0]: {h2_fci[0, 0, 0, 0]:.8f}')
+
+
+'''
 w90 = pywannier90.W90(
     kmf,
     cell,
@@ -143,3 +186,4 @@ h2_gamma = h2_R[0, 0, 0, 0]
 
 print('\n===== h2(R=Gamma) =====')
 print(h2_gamma)
+'''
