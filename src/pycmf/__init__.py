@@ -159,9 +159,9 @@ def DFTUOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):
         return _DFTUOBMP2_class(mf, frozen, mo_coeff, mo_occ)
 
 
-def DFTUOBMP2_CL(mf, frozen=0, mo_coeff=None, mo_occ=None):
-    if isinstance(mf, scf.uhf.UHF):
-        return _DFTUOBMP2_CL_class(mf, frozen, mo_coeff, mo_occ)
+# def DFTUOBMP2_CL(mf, frozen=0, mo_coeff=None, mo_occ=None):
+#     if isinstance(mf, scf.uhf.UHF):
+#         return _DFTUOBMP2_CL_class(mf, frozen, mo_coeff, mo_occ)
 
 
 def KOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):
