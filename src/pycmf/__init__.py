@@ -37,7 +37,7 @@ from .OBDF import (
 )
 
 # --- IMPORT TỪ DOUBLE HYBRID DFT VÀ K-POINTS ---
-from .OBDH import DFTOBMP2 as _DFTOBMP2_class, DFTUOBMP2 as _DFTUOBMP2_class, DFTUOBMP2_CL as _DFTUOBMP2_CL_class
+from .OBDH import DFTOBMP2 as _DFTOBMP2_class, DFTUOBMP2 as _DFTUOBMP2_class#, DFTUOBMP2_CL as _DFTUOBMP2_CL_class
 
 
 # =========================================================================
