@@ -10,7 +10,7 @@ from pyscf.lib import logger
 from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 
-import dfobmp2_faster_ram
+from pycmf.OBMP import DFOBMP2 
 # import obmp2
 from uobdh_solver import obmp2_iter, make_amp
 from uobdh_embed import embed_kernel
@@ -100,7 +100,7 @@ def get_nmo(mp):
     nmob = mp.mo_occ[1].size
     return nmoa, nmob
 
-class UB2PLYPDFUOBMP2(dfobmp2_faster_ram.DFOBMP2):
+class UB2PLYPDFUOBMP2(DFOBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
         # Bổ sung các cờ kiểm soát luồng chạy

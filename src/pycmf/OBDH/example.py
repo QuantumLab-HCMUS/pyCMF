@@ -1,6 +1,6 @@
 import time
 from pyscf import scf, gto
-from pyCMF.src.pycmf.OBDH.main import UB2PLYPDFUOBMP2
+from pycmf.OBDH import DFTUOBMP2
 
 mol = gto.Mole()
 mol.atom = '''
@@ -34,7 +34,7 @@ mol.build()
 
 print("\n>>>>>>>> CHẠY CHẾ ĐỘ: KHÔNG CÓ EMBEDDING (OBDH CHUẨN) <<<<<<<<")
 mf_std = scf.UHF(mol).density_fit().run()
-mppp_std = UB2PLYPDFUOBMP2(mf_std)
+mppp_std = DFTUOBMP2(mf_std)
 mppp_std.alphaa = (0.53, 0.39)
 mppp_std.thresh = 1e-06
 mppp_std.use_embed = False  # Tắt Embedding
@@ -46,7 +46,7 @@ print('=> Thời gian chạy (No Embed): ', time.time() - start)
 
 print("\n\n>>>>>>>> CHẠY CHẾ ĐỘ: CÓ EMBEDDING & TRUNCATION <<<<<<<<")
 mf_emb = scf.UHF(mol).density_fit().run()
-mppp_emb = UB2PLYPDFUOBMP2(mf_emb)
+mppp_emb = DFTUOBMP2(mf_emb)
 mppp_emb.alphaa = (0.53, 0.39)
 mppp_emb.thresh = 1e-06
 
