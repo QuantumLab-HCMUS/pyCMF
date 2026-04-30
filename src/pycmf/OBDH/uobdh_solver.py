@@ -40,9 +40,9 @@ def make_amp(mp):
     from pyscf.lib import current_memory
     tracemalloc.start()
 
-    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca, nmoa)):
+    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
         pass
-    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb, nmob)):
+    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
         pass
 
     log.debug("qov_ab memory: %.1f MiB", current_memory()[0])
@@ -99,10 +99,10 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     c1_a = numpy.zeros((nmoa,nmoa), dtype=fock_hfa.dtype)
     c1_b = numpy.zeros((nmob,nmob), dtype=fock_hfb.dtype)
 
-    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb, nmob)):
+    for istep, qov_b in enumerate(mp.loop_ao2mo(mo_coeff[1], noccb)):
         pass
 
-    for istep, qgv_a in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[0], nocca, nmoa)):
+    for istep, qgv_a in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[0], nocca)):
         for i in range(nocca):
             c1_a[:,0:nocca] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qgv_a.reshape(naux, nmoa, nvira)[:,:nocca,:nvira].reshape(naux, nocca*nvira)[:,i*nvira:(i+1)*nvira].T,qgv_a).reshape(nvira,nmoa,nvira),tmp1_bar_aa[i,:,:,:]) 
         for i in range(noccb):
@@ -110,14 +110,14 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
     
     del(qgv_a)
     
-    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca, nmoa)):
+    for istep, qov_a in enumerate(mp.loop_ao2mo(mo_coeff[0], nocca)):
         for i in range(nocca):
             c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T, qov_a).reshape(nvira, nocca, nvira), tmp1_bar_aa[i,:,:,:])
     
     for i in range(nocca):
         c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T, qov_b).reshape(nvira, noccb, nvirb), tmp1_bar_ab[i,:,:,:])
     
-    for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb, nmob)):
+    for istep, qgv_b in enumerate(mp.loop_ao2mo_cgcv(mo_coeff[1], noccb)):
         for i in range(noccb):
             c1_b[:,0:noccb] += 2. * lib.einsum("apb, ajb -> pj",numpy.dot(qgv_b.reshape(naux, nmob, nvirb)[:,:noccb,:nvirb].reshape(naux, noccb*nvirb)[:,i*nvirb:(i+1)*nvirb].T,qgv_b).reshape(nvirb,nmob,nvirb),tmp1_bar_bb[i,:,:,:]) 
         for i in range(nocca):
@@ -129,7 +129,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
         c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T, qov_a).reshape(nvirb, nocca, nvira), tmp1_bar_ba[i,:,:,:])
         c0 -= 1.*lib.einsum("ajb, ajb -> ", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T, qov_b).reshape(nvirb, noccb, nvirb), tmp1_bar_bb[i,:,:,:])
     
-    for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], nocca, nmoa)):
+    for istep, qog_a in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[0], nocca)):
         for i in range(nocca):
             c1_a[:,nocca:nmoa] -= 2.*lib.einsum("ajp, ajb -> pb", numpy.dot(qov_a[:,i*nvira:(i+1)*nvira].T,qog_a).reshape(nvira,nocca, nmoa),tmp1_bar_aa[i,:,:,:]) 
         for i in range(noccb):
@@ -137,7 +137,7 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
 
     del(qog_a)
     
-    for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], noccb, nmob)):
+    for istep, qog_b in enumerate(mp.loop_ao2mo_goog_cocg(mo_coeff[1], noccb)):
         for i in range(noccb):
             c1_b[:,noccb:nmob] -= 2.* lib.einsum("ajp, ajb -> pb", numpy.dot(qov_b[:,i*nvirb:(i+1)*nvirb].T,qog_b).reshape(nvirb,noccb, nmob),tmp1_bar_bb[i,:,:,:]) 
         for i in range(nocca):
