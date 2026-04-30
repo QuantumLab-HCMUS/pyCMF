@@ -44,18 +44,18 @@ start = time.time()
 mppp_std.run()
 print('=> Thời gian chạy (No Embed): ', time.time() - start)
 
-print("\n\n>>>>>>>> CHẠY CHẾ ĐỘ: CÓ EMBEDDING & TRUNCATION <<<<<<<<")
-mf_emb = scf.UHF(mol).density_fit().run()
-mppp_emb = DFTUOBMP2(mf_emb)
-mppp_emb.alphaa = (0.53, 0.39)
-mppp_emb.thresh = 1e-06
+# print("\n\n>>>>>>>> CHẠY CHẾ ĐỘ: CÓ EMBEDDING & TRUNCATION <<<<<<<<")
+# mf_emb = scf.UHF(mol).density_fit().run()
+# mppp_emb = DFTUOBMP2(mf_emb)
+# mppp_emb.alphaa = (0.53, 0.39)
+# mppp_emb.thresh = 1e-06
 
-mppp_emb.use_embed = True   # Bật Embedding
-mppp_emb.active_atoms = [0, 1]
-mppp_emb.mu = 1e6
-mppp_emb.use_cl = True      # Bật CL Truncation (chỉ có ý nghĩa khi use_embed=True)
-mppp_emb.n_shells = 1
+# mppp_emb.use_embed = True   # Bật Embedding
+# mppp_emb.active_atoms = [0, 1]
+# mppp_emb.mu = 1e6
+# mppp_emb.use_cl = True      # Bật CL Truncation (chỉ có ý nghĩa khi use_embed=True)
+# mppp_emb.n_shells = 1
 
-start2 = time.time()
-mppp_emb.run()
-print('=> Thời gian chạy (Embed + CL): ', time.time() - start2)
+# start2 = time.time()
+# mppp_emb.run()
+# print('=> Thời gian chạy (Embed + CL): ', time.time() - start2)
