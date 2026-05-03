@@ -20,8 +20,8 @@ H 1.5 1.5 2
 cell.basis = '6-31g'
 # cell.basis = 'gth-szv'
 # cell.pseudo = 'gth-pade'
-cell.a = np.eye(3) * 50
-# cell.dimension = 0
+cell.a = np.eye(3) * 20
+# cell.dimension = 0s
 cell.gs = [100, 100, 100]
 cell.build()
 
@@ -61,6 +61,25 @@ krobact.mo_coeff = krobmp.mo_coeff
 krobact.mo_energy = krobmp.mo_energy
 krobact.fock_hf = krobmp.fock_hf
 krobact.second_order = True
+
+import pycmf.OBDF.krobdf as krobdf_module
+
+# Lưu lại hàm gốc để dùng cho các hệ có electron lõi
+original_make_veff_core = krobdf_module.make_veff_core
+
+
+def patched_make_veff_core(mp):
+    # KROBDF thường lưu ncore dưới dạng list cho [alpha, beta]
+    ncore_total = sum(mp.ncore) if hasattr(mp.ncore, '__iter__') else mp.ncore
+    if ncore_total == 0:
+        # Bỏ qua get_jk, trả về V_core = 0 cho cả 2 kênh spin
+        return [0.0, 0.0]
+    return original_make_veff_core(mp)
+
+
+# Áp dụng bản vá
+krobdf_module.make_veff_core = patched_make_veff_core
+
 krobact.kernel()
 
 h1_eff_k = krobact.h1mo_act_eff
@@ -70,16 +89,9 @@ Nk_total, Norb, _ = h1_eff_k.shape
 Nkx, Nky, Nkz = nk
 Nk = Nkx * Nky * Nkz
 
-# ============================================================
-# 5. Wannier
-# ============================================================
-
-kmf.mo_coeff = krobmp.mo_coeff.copy()
-kmf.mo_energy = krobmp.mo_energy.copy()
-
-# ============================================================
-# 5. FCI (KHÔNG WANNIER) để kiểm chứng
-# ============================================================
+print('# ============================================================')
+print('# 5. FCI (KHÔNG WANNIER) để kiểm chứng')
+print('# ============================================================')
 print('\n' + '=' * 40)
 print('TÍNH TOÁN FCI TRÊN HAMILTONIAN DOWNFOLD')
 print('=' * 40)
@@ -111,8 +123,13 @@ print(h1_fci)
 # Note: In ra phần tử đặc trưng của h2 để đối chiếu
 print(f'\n> Kiểm tra h2_eff[0,0,0,0]: {h2_fci[0, 0, 0, 0]:.8f}')
 
+print('\n# ============================================================')
+print('# 5. Wannier')
+print('# ============================================================')
 
-'''
+kmf.mo_coeff = krobmp.mo_coeff.copy()
+kmf.mo_energy = krobmp.mo_energy.copy()
+
 w90 = pywannier90.W90(
     kmf,
     cell,
@@ -186,4 +203,3 @@ h2_gamma = h2_R[0, 0, 0, 0]
 
 print('\n===== h2(R=Gamma) =====')
 print(h2_gamma)
-'''
