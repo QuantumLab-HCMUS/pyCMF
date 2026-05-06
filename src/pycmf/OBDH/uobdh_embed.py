@@ -3,7 +3,7 @@ import scipy.linalg as la
 from scipy.linalg import fractional_matrix_power
 from pyscf import lib, dft, scf
 from pyscf.lib import logger
-from uobdh_solver import obmp2_iter
+from .uobdh_solver import obmp2_iter
 
 def make_dipole(mol, dm_embed):
     return scf.hf.dip_moment(mol, dm_embed, unit='Debye')
@@ -139,7 +139,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     if use_cl:
         print(f"   [Embedded UOBMP2] Performing Concentric Localization (n_shells={cl_n_shells})...")
         try:
-            from CL_embed import concentric_localization
+            from .CL_embed import concentric_localization
             active_aos = []
             aoslice = mol.aoslice_by_atom()
             for atom_id in atom_indices_A:

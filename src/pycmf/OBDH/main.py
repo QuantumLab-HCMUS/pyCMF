@@ -12,8 +12,8 @@ from pyscf.data.gyro import get_nuc_g_factor
 
 from pycmf.OBMP import DFOBMP2 
 # import obmp2
-from uobdh_solver import obmp2_iter, make_amp
-from uobdh_embed import embed_kernel
+from .uobdh_solver import obmp2_iter, make_amp
+from .uobdh_embed import embed_kernel
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
