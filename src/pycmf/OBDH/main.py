@@ -157,4 +157,4 @@ class UB2PLYPDFUOBMP2(DFOBMP2):
         
         return e_tot, e_dft, gamma
 
-OBMP2 = UB2PLYPDFUOBMP2
+OBDH = UB2PLYPDFUOBMP2
