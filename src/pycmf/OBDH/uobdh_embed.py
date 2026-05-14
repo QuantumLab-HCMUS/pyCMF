@@ -195,7 +195,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
             print("   [Error] Could not import CL_embed. Falling back to non-CL virtual space.")
 
     print(f"   [Embedded UOBMP2] Running UOBMP2...")
-    e_tot, e_dft, gamma_uobmp2 = obmp2_iter(mp, mol, mf_emb, xc, v_emb, niter=mp.niter)
+    e_tot, e_dft, gamma_uobmp2 = obmp2_iter(mp, mol_emb, mf_emb, xc, v_emb, niter=mp.niter)
     return e_tot, e_dft, gamma_uobmp2
 
 def embed_kernel(mp):

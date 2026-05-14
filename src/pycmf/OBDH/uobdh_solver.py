@@ -296,6 +296,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         mp.mo_coeff = mf_emb.mo_coeff
         mp.mo_occ = mf_emb.mo_occ
         mp.mo_energy = mf_emb.mo_energy
+        mp.mol = mol
         mp._scf = mf_emb 
         mp._nocc = (nocca, noccb)
         mp._nmo = (nmoa, nmob)
