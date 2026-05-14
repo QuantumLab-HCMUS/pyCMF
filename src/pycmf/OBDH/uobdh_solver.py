@@ -460,7 +460,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         mp.mo_coeff  = mf_emb.mo_coeff
         mp.mo_energy = mf_emb.mo_energy
 
-        if de <= mp.thresh:
+        if it + 1 >= 2 and de <= mp.thresh:
             conv = True
             break
     
