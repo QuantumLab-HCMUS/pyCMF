@@ -744,7 +744,7 @@ class DFOBMP2(obmp2.OBMP2):
 
     def loop_ao2mo(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]  # In ra số hàng (số cơ sở AO)
+        nmo = mo.shape[1]  # In ra số hàng (số cơ sở AO) !!!! Tại sao nmo lại là số hàng, đã fix từ 0 sang 1 !!!!!
         ijslice = (0, nocc, nocc, nmo)
         Lov = None
         with_df = self.with_df
@@ -762,7 +762,7 @@ class DFOBMP2(obmp2.OBMP2):
 
     def loop_ao2mo_goog_cocg(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        nmo = mo.shape[1]
         ijslice = (0, nocc, 0, nmo)
         Lov = None
         with_df = self.with_df
@@ -778,7 +778,7 @@ class DFOBMP2(obmp2.OBMP2):
 
     def loop_ao2mo_goog_cgco(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        nmo = mo.shape[1]
         ijslice = (0, nmo, 0, nocc)
         Lov = None
         with_df = self.with_df
@@ -794,7 +794,7 @@ class DFOBMP2(obmp2.OBMP2):
 
     def loop_ao2mo_ggoo_coco(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        nmo = mo.shape[1]
         ijslice = (0, nocc, 0, nocc)
         Lov = None
         with_df = self.with_df
@@ -810,7 +810,7 @@ class DFOBMP2(obmp2.OBMP2):
 
     def loop_ao2mo_ggoo_cgcg(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        nmo = mo.shape[1]
         ijslice = (0, nmo, 0, nmo)
         Lov = None
         with_df = self.with_df
@@ -826,7 +826,7 @@ class DFOBMP2(obmp2.OBMP2):
 
     def loop_ao2mo_cgcv(self, mo_coeff, nocc):
         mo = numpy.asarray(mo_coeff, order='F')
-        nmo = mo.shape[0]
+        nmo = mo.shape[1]
         Lov = None
         with_df = self.with_df
 
