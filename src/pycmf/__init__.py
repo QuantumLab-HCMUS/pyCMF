@@ -37,7 +37,7 @@ from .OBDF import (
 )
 
 # --- IMPORT TỪ DOUBLE HYBRID DFT VÀ K-POINTS ---
-from .OBDH import DFTOBMP2 as _DFTOBMP2_class, DFTUOBMP2 as _DFTUOBMP2_class#, DFTUOBMP2_CL as _DFTUOBMP2_CL_class
+from .OBDH import DFTOBMP2 as _DFTOBMP2_class, OBDH_CL as _OBDH_CL_class, OBMP2_CL as _OBMP2_CL_class
 
 
 # =========================================================================
@@ -154,14 +154,14 @@ def DFTOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):
         return _DFTOBMP2_class(mf, frozen, mo_coeff, mo_occ)
 
 
-def DFTUOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):
+def OBDH_CL(mf, frozen=0, mo_coeff=None, mo_occ=None):
     if isinstance(mf, scf.uhf.UHF):
-        return _DFTUOBMP2_class(mf, frozen, mo_coeff, mo_occ)
+        return _OBDH_CL_class(mf, frozen, mo_coeff, mo_occ)
 
 
-# def DFTUOBMP2_CL(mf, frozen=0, mo_coeff=None, mo_occ=None):
-#     if isinstance(mf, scf.uhf.UHF):
-#         return _DFTUOBMP2_CL_class(mf, frozen, mo_coeff, mo_occ)
+def OBMP2_CL(mf, frozen=0, mo_coeff=None, mo_occ=None):
+    if isinstance(mf, scf.uhf.UHF):
+        return _OBMP2_CL_class(mf, frozen, mo_coeff, mo_occ)
 
 
 def KOBMP2(mf, frozen=0, mo_coeff=None, mo_occ=None):

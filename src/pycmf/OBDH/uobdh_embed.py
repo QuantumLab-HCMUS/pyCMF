@@ -108,15 +108,11 @@ def build_embedding_potential(mol, xc_code, S, mu, mf_full, gamma_B_tuple, gamma
 
 def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, num_active_orbs, atom_indices_A, use_cl=False, cl_n_shells=1, cl_mu_threshold=1e5):
     print(f"   [Embedded UOBMP2] Initializing UHF with Embedding Potential...")
-    # 1. TẠO BẢN SAO CỦA MOL ĐỂ KHÔNG LÀM MUTATE BIẾN GỐC
     mol_emb = mol.copy()
-    
-    # 2. Cập nhật số lượng electron và spin cho bản sao (hệ nhúng A)
     na, nb = num_active_orbs
     mol_emb.nelectron = na + nb
     mol_emb.spin = na - nb
 
-    # 3. Sử dụng bản sao mol_emb để thiết lập hệ UHF
     mf_emb = scf.UHF(mol_emb)
     mf_emb.verbose = 0
     original_get_veff = mf_emb.get_veff
@@ -194,9 +190,35 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
         except ImportError:
             print("   [Error] Could not import CL_embed. Falling back to non-CL virtual space.")
 
-    print(f"   [Embedded UOBMP2] Running UOBMP2...")
-    e_tot, e_dft, gamma_uobmp2 = obmp2_iter(mp, mol_emb, mf_emb, xc, v_emb, niter=mp.niter)
-    return e_tot, e_dft, gamma_uobmp2
+    print(f"   [Embedded UOBMP2] Running DIIS...")
+    e_tot_or_corr, e_dft, gamma_uobmp2 = obmp2_iter(mp, mol_emb, mf_emb, xc, v_emb, niter=mp.niter)
+    
+    is_hybrid = getattr(mp, 'is_hybrid', True)
+    if is_hybrid:
+        return e_tot_or_corr, e_dft, gamma_uobmp2
+    else:
+        # PURE OBMP2 Energy logic
+        gamma_uobmp2_a, gamma_uobmp2_b = gamma_uobmp2
+        mf_tmp = dft.UKS(mol)
+        mf_tmp.xc = xc
+        mf_tmp.verbose = 0
+        mf_tmp = mf_tmp.density_fit()
+        
+        # 1e- and 2e- energy from UOBMP2 density but isolated nuclei core
+        e_elec_meanfield, _ = mf_tmp.energy_elec([gamma_uobmp2_a, gamma_uobmp2_b], h1e=h_core_A_iso)
+
+        coords = mol.atom_coords()
+        charges = mol.atom_charges()
+        e_nuc_A = 0.0
+        for i in range(len(atom_indices_A)):
+            for j in range(i + 1, len(atom_indices_A)):
+                at_i = atom_indices_A[i]
+                at_j = atom_indices_A[j]
+                dist = np.linalg.norm(coords[at_i] - coords[at_j])
+                e_nuc_A += (charges[at_i] * charges[at_j]) / dist
+
+        e_wf_A_internal = e_elec_meanfield + e_nuc_A + e_tot_or_corr # e_tot_or_corr là e_corr
+        return e_wf_A_internal, None, gamma_uobmp2
 
 def embed_kernel(mp):
     mol = mp.mol
@@ -204,9 +226,11 @@ def embed_kernel(mp):
     xc_code = f"{alphaa[0]}*HF + {1-alphaa[0]}*B88, {1-alphaa[1]}*LYP"
     S = mp._scf.get_ovlp()
     mu = mp.mu
+    is_hybrid = getattr(mp, 'is_hybrid', True)
+    method_name = "OBDH" if is_hybrid else "OBMP2"
 
     print('\n' + '='*70)
-    print('UOBMP2-IN-DFT EMBEDDING WITH SPADE PARTITIONING')
+    print(f'{method_name}-IN-DFT EMBEDDING WITH SPADE PARTITIONING')
     print('='*70)
     print('\n--- STEP 1: Running Full System DFT ---')
     ks_full = run_full_dft(mol, xc_code)
@@ -227,36 +251,63 @@ def embed_kernel(mp):
 
     print("\n--- Constructing Potentials ---")
     h_core_A_iso = get_subsystem_hcore(mol, atom_indices_A)
+    
+    # Riêng OBMP2 cần in và tính E_DFT[A] Isolated làm baseline
+    if not is_hybrid:
+        e_dft_A_iso = calculate_dft_energy_isolated(mol, xc_code, gamma_A, h_core_A_iso, atom_indices_A)
+        print(f"E_DFT[A] (Isolated Total): {e_dft_A_iso:.8f} Eh")
+
     v_emb, P_B = build_embedding_potential(mol, xc_code, S, mu, ks_full, gamma_B, gamma_A)
 
-    print("\n--- Running UOBMP2 in DFT Environment ---")    
+    print(f"\n--- Running {method_name} in DFT Environment ---")    
     e_wf_A_internal, e_dft_A_relax, gamma_uobmp2 = run_embed_uobmp2(
                                         mp, mol, xc_code, h_core_full, h_core_A_iso, v_emb,
                                         gamma_A, (na_act, nb_act), atom_indices_A,
                                         use_cl=mp.use_cl, cl_n_shells=mp.n_shells, cl_mu_threshold=1e5)
 
     gamma_uobmp2_a, gamma_uobmp2_b = gamma_uobmp2
-    gamma_relax = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
 
-    e_dft_full_relax = ks_full.energy_tot(dm = gamma_relax)
-    e_baseline = e_dft_full_relax - e_dft_A_relax
+    if is_hybrid:
+        # --- Logic Final Energy của OBDH ---
+        gamma_relax = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
+        e_dft_full_relax = ks_full.energy_tot(dm = gamma_relax)
+        e_baseline = e_dft_full_relax - e_dft_A_relax
+        e_ortho = mp.mu * (np.einsum('ij,ji', gamma_uobmp2_a, P_B[0]) + np.einsum('ij,ji', gamma_uobmp2_b, P_B[1]))
+        e_final = e_wf_A_internal + e_baseline + e_ortho
 
-    e_ortho = mp.mu * (np.einsum('ij,ji', gamma_uobmp2_a, P_B[0]) + np.einsum('ij,ji', gamma_uobmp2_b, P_B[1]))
-    e_final = e_wf_A_internal + e_baseline + e_ortho
+        print("-" * 60)
+        print(f"E_WF[A] (Internal, Recalculated): {e_wf_A_internal:.8f}")
+        print(f"Baseline (Full - Iso)           : {e_baseline:.8f}")
+        print(f"Orthogonality Correction        : {e_ortho:.8f}")
+
+    else:
+        # --- Logic Final Energy của OBMP2 ---
+        e_baseline = ks_full.e_tot - e_dft_A_iso
+        v_emb_np_a = v_emb[0] - mp.mu * P_B[0]
+        v_emb_np_b = v_emb[1] - mp.mu * P_B[1]
+
+        e_relax = np.einsum('ij,ji', gamma_uobmp2_a - gamma_A[0], v_emb_np_a) + \
+                  np.einsum('ij,ji', gamma_uobmp2_b - gamma_A[1], v_emb_np_b)
+        
+        e_ortho = mp.mu * (np.einsum('ij,ji', gamma_uobmp2_a, P_B[0]) + np.einsum('ij,ji', gamma_uobmp2_b, P_B[1]))
+        
+        e_final = e_wf_A_internal + e_baseline + e_relax + e_ortho
+
+        print("-" * 60)
+        print(f"E_WF[A] (Internal, Recalculated): {e_wf_A_internal:.8f}")
+        print(f"Baseline (Full - Iso)           : {e_baseline:.8f}")
+        print(f"Relaxation Correction           : {e_relax:.8f}")
+        print(f"Orthogonality Correction        : {e_ortho:.8f}")
 
     print("-" * 60)
-    print(f"E_WF[A] (Internal, Recalculated): {e_wf_A_internal:.8f}")
-    print(f"Baseline (Full - Iso)           : {e_baseline:.8f}")
-    print(f"Orthogonality Correction        : {e_ortho:.8f}")
-    print("-" * 60)
-    print(f"Total UOBMP2-in-DFT Energy        : {e_final:.8f} Eh")
+    print(f"Total {method_name}-in-DFT Energy   : {e_final:.8f} Eh")
     print(f"Ref DFT Energy                  : {ks_full.e_tot:.8f} Eh")
     print(f"Difference (Gain)               : {(e_final - ks_full.e_tot)*1e6:.2f} uEh")
     print("=" * 60)
 
     dm_total_final = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
     dip_mom = np.linalg.norm(make_dipole(mol, dm_total_final))
-    print(f"Norm of Dipole Moment       : {(dip_mom)}")
+    print(f"Norm of Dipole Moment       : {dip_mom}")
     print("=" * 60)
     
     return e_final, ks_full.e_tot

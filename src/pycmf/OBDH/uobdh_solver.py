@@ -390,6 +390,8 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     vhf = mf_emb.get_veff(mol, dm)
     nuc = mf_emb.energy_nuc()
     
+    is_hybrid = getattr(mp, 'is_hybrid', True)
+
     ks = dft.UKS(mol)
     ks.xc = xc_code
     ks.verbose = 0
@@ -440,13 +442,16 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         c0 *= 0.5
         ene_hf += c0
 
-        vxc = ks.get_veff(mol, dm)
-        fock_dft_raw = ks.get_fock(h1e, s1e, vxc, dm, diis_start_cycle=it)
-        fock_dft = numpy.array([fock_dft_raw[0] + v_emb[0], fock_dft_raw[1] + v_emb[1]])
-        
-        fock_dft_a = numpy.matmul(mf_emb.mo_coeff[0].T, numpy.matmul(fock_dft[0], mf_emb.mo_coeff[0]))
-        fock_dft_b = numpy.matmul(mf_emb.mo_coeff[1].T, numpy.matmul(fock_dft[1], mf_emb.mo_coeff[1]))
-        ene_dft = ks.energy_elec(dm, h1e, vxc)[0] + nuc
+        if is_hybrid:
+            vxc = ks.get_veff(mol, dm)
+            fock_dft_raw = ks.get_fock(h1e, s1e, vxc, dm, diis_start_cycle=it)
+            fock_dft = numpy.array([fock_dft_raw[0] + v_emb[0], fock_dft_raw[1] + v_emb[1]])
+            
+            fock_dft_a = numpy.matmul(mf_emb.mo_coeff[0].T, numpy.matmul(fock_dft[0], mf_emb.mo_coeff[0]))
+            fock_dft_b = numpy.matmul(mf_emb.mo_coeff[1].T, numpy.matmul(fock_dft[1], mf_emb.mo_coeff[1]))
+            ene_dft = ks.energy_elec(dm, h1e, vxc)[0] + nuc
+        else:
+            ene_dft = 0.0
 
         vhf = mf_emb.get_veff(mol, dm)
         fock_hf_pyscf = mf_emb.get_fock(h1e, s1e, vhf, dm, diis_start_cycle=it) 
@@ -485,22 +490,31 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         
         ene_uobmp2 = ene + nuc
 
-        e_tot = (ene_dft) + (ene_uobmp2 - ene_hfpyscf) * mp.alphaa[1]
-        e_corr = (ene_uobmp2 - ene_hfpyscf) * mp.alphaa[1]
-
-        fock_udftobmp2_a = (fock_dft_a) + (fock_uobmp2_a - fock_hf_pyscf_a) * mp.alphaa[1] 
-        fock_udftobmp2_b = (fock_dft_b) + (fock_uobmp2_b - fock_hf_pyscf_b) * mp.alphaa[1] 
-
-        if ene_old is None:
-            de = numpy.inf
+        if is_hybrid:
+            e_tot = (ene_dft) + (ene_uobmp2 - ene_hfpyscf) * mp.alphaa[1]
+            e_corr_hybrid = (ene_uobmp2 - ene_hfpyscf) * mp.alphaa[1]
+            fock_udftobmp2_a = (fock_dft_a) + (fock_uobmp2_a - fock_hf_pyscf_a) * mp.alphaa[1] 
+            fock_udftobmp2_b = (fock_dft_b) + (fock_uobmp2_b - fock_hf_pyscf_b) * mp.alphaa[1] 
+            
+            de = abs(e_tot - ene_old) if ene_old is not None else numpy.inf
+            ene_old = e_tot
+            
+            F_eff_mo_a = fock_udftobmp2_a 
+            F_eff_mo_b = fock_udftobmp2_b 
         else:
-            de = abs(e_tot - ene_old)
-        ene_old = e_tot
+            e_corr = (ene_uobmp2 - ene_hfpyscf)
+            e_tot = e_corr # Lấy e_corr làm tiêu chí hội tụ cho loop
+            fock_udftobmp2_a = (fock_uobmp2_a - fock_hf_pyscf_a) 
+            fock_udftobmp2_b = (fock_uobmp2_b - fock_hf_pyscf_b)
+            
+            de = abs(e_corr - ene_old) if ene_old is not None else numpy.inf
+            ene_old = e_corr
+
+            # Đối với Pure OBMP2, DIIS Fock = HF + UOBMP2 - HF = UOBMP2
+            F_eff_mo_a = fock_hf_pyscf_a + fock_udftobmp2_a 
+            F_eff_mo_b = fock_hf_pyscf_b + fock_udftobmp2_b 
 
         # DIIS
-        F_eff_mo_a = fock_udftobmp2_a 
-        F_eff_mo_b = fock_udftobmp2_b 
-        
         F_a = s1e @ mf_emb.mo_coeff[0] @ F_eff_mo_a @ mf_emb.mo_coeff[0].T @ s1e
         F_b = s1e @ mf_emb.mo_coeff[1] @ F_eff_mo_b @ mf_emb.mo_coeff[1].T @ s1e
         
@@ -550,7 +564,11 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         dRMS_b = numpy.mean(diis_r_b**2)**0.5
         dRMS = max(dRMS_a, dRMS_b)
 
-        print(f"Iter {it}: E_tot={e_tot:.12f}, E_corr={e_corr:.12f}, dE={de:.8e}, dRMS={dRMS:.8e}")
+        # Print tương ứng với method
+        if is_hybrid:
+            print(f"Iter {it}: E_tot={e_tot:.12f}, E_corr={e_corr_hybrid:.12f}, dE={de:.8e}, dRMS={dRMS:.8e}")
+        else:
+            print(f"Iter {it}: E_corr={e_corr:.12f}, dE={de:.8e}, dRMS={dRMS:.8e}")
 
         F_list_b.append(F_b)
         DIIS_RESID_b.append(diis_r_b)
