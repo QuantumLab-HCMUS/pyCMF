@@ -7,9 +7,9 @@ from .dft_obmp2 import B2PLYPDFOBMP2 as DFTOBMP2
 # from .dft_uobmp2 import UB2PLYPDFUOBMP2 as DFTUOBMP2
 
 # Import class có chứa Concentric Localization (CL)
-from .main import UB2PLYPDFUOBMP2 as DFTUOBMP2
-
+from .main import OBDH_CL
+from .main import OBMP2_CL
 # Import các hàm tiện ích xử lý CL để người dùng gọi trực tiếp nếu cần
 from .CL_embed import concentric_localization, cl_shell_analysis
 
-__all__ = ['DFTOBMP2', 'DFTUOBMP2', 'concentric_localization', 'cl_shell_analysis']
+__all__ = ['DFTOBMP2', 'OBDH_CL', 'OBMP2_CL','concentric_localization', 'cl_shell_analysis']

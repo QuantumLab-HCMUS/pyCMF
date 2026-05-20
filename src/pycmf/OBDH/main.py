@@ -11,7 +11,6 @@ from pyscf.data import nist
 from pyscf.data.gyro import get_nuc_g_factor
 
 from pycmf.OBMP import DFOBMP2 
-# import obmp2
 from .uobdh_solver import obmp2_iter, make_amp
 from .uobdh_embed import embed_kernel
 
@@ -100,12 +99,11 @@ def get_nmo(mp):
     nmob = mp.mo_occ[1].size
     return nmoa, nmob
 
-class UB2PLYPDFUOBMP2(DFOBMP2):
+class BaseEmbedOBMP2(DFOBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
-        # Bổ sung các cờ kiểm soát luồng chạy
-        self.use_embed = False  # Nếu False: Chạy OBDH thông thường trên toàn hệ
-        self.use_cl = False     # Bật/tắt Concentric Localization 
+        self.use_embed = False  
+        self.use_cl = False     
         self.active_atoms = []
         self.n_shells = 1
         self.mu = 1e6
@@ -118,6 +116,7 @@ class UB2PLYPDFUOBMP2(DFOBMP2):
         self.css = 1.
         self._nocc = None
         self._nmo = None
+        self.is_hybrid = True # Mặc định là OBDH (Hybrid)
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -133,28 +132,46 @@ class UB2PLYPDFUOBMP2(DFOBMP2):
         return self.ene_tot
 
     def standard_kernel(self):
-        log = logger.new_logger(self, self.verbose)
-        print('\n' + '='*70)
-        print('RUNNING STANDARD UOBMP2 (NO EMBEDDING)')
-        print('='*70)
-        
-        xc_code = f"{self.alphaa[0]}*HF + {1-self.alphaa[0]}*B88, {1-self.alphaa[1]}*LYP"
-        
-        mf_std = copy.copy(self._scf)
-        mf_std.mo_coeff = (self._scf.mo_coeff[0].copy(), self._scf.mo_coeff[1].copy())
-        mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
-        mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
-        
-        # Gọi obmp2_iter với v_emb = None (hoặc [0, 0])
-        e_tot, e_dft, gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
-        
-        print("-" * 60)
-        print(f"Total Standard UOBMP2 Energy = {e_tot:.8f} Eh")
-        
-        dip_mom = numpy.linalg.norm(scf.hf.dip_moment(self.mol, gamma, unit='Debye'))
-        print(f"Norm of Dipole Moment        = {dip_mom}")
-        print("=" * 60)
-        
-        return e_tot, e_dft, gamma
+            log = logger.new_logger(self, self.verbose)
+            method_name = "OBDH (HYBRID)" if self.is_hybrid else "OBMP2 (PURE)"
+            print('\n' + '='*70)
+            print(f'RUNNING STANDARD {method_name} (NO EMBEDDING)')
+            print('='*70)
+            
+            xc_code = f"{self.alphaa[0]}*HF + {1-self.alphaa[0]}*B88, {1-self.alphaa[1]}*LYP"
+            
+            mf_std = copy.copy(self._scf)
+            mf_std.mo_coeff = (self._scf.mo_coeff[0].copy(), self._scf.mo_coeff[1].copy())
+            mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
+            mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
+            
+            e_returned, e_dft, gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
+            
+            if self.is_hybrid:
+                e_tot = e_returned 
+            else:
+                e_tot = self._scf.e_tot + e_returned 
 
-OBDH = UB2PLYPDFUOBMP2
+            print("-" * 60)
+            print(f"Total Standard Energy = {e_tot:.8f} Eh")
+            
+            dip_mom = numpy.linalg.norm(scf.hf.dip_moment(self.mol, gamma, unit='Debye'))
+            print(f"Norm of Dipole Moment = {dip_mom}")
+            print("=" * 60)
+            
+            return e_tot, e_dft, gamma
+
+# Class cho OBDH (Hybrid)
+class UB2PLYPDFUOBMP2(BaseEmbedOBMP2):
+    def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
+        super().__init__(mf, frozen, mo_coeff, mo_occ)
+        self.is_hybrid = True 
+
+# Class cho OBMP2 (Pure)
+class UOBMP2(BaseEmbedOBMP2):
+    def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
+        super().__init__(mf, frozen, mo_coeff, mo_occ)
+        self.is_hybrid = False 
+
+OBDH_CL = UB2PLYPDFUOBMP2
+OBMP2_CL = UOBMP2
