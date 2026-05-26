@@ -108,7 +108,7 @@ class BaseEmbedOBMP2(DFOBMP2):
         self.n_shells = 1
         self.mu = 1e6
         self.alphaa = (0.5, 0.5)
-        self.niter = 50
+        self.niter = 300
         self.thresh = 1e-6
         self.second_order = True
         self.eval_IPEA = True

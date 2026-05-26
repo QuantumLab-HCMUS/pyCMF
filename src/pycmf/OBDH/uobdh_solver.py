@@ -386,6 +386,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
 
     dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
     s1e = mf_emb.get_ovlp(mol)
+    A = scipy.linalg.fractional_matrix_power(s1e, -0.5).real
     h1e = mf_emb.get_hcore(mol)
     vhf = mf_emb.get_veff(mol, dm)
     nuc = mf_emb.energy_nuc()
@@ -398,9 +399,8 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     ks = ks.density_fit()
 
     F_list_a = []
-    DIIS_RESID_a = []
     F_list_b = []
-    DIIS_RESID_b = []
+    DIIS_RESID = []
     
     ene_old = None
     conv = False
@@ -510,59 +510,38 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
             de = abs(e_corr - ene_old) if ene_old is not None else numpy.inf
             ene_old = e_corr
 
-            # Đối với Pure OBMP2, DIIS Fock = HF + UOBMP2 - HF = UOBMP2
+            # For Pure OBMP2, DIIS Fock = HF + UOBMP2 - HF = UOBMP2
             F_eff_mo_a = fock_hf_pyscf_a + fock_udftobmp2_a 
             F_eff_mo_b = fock_hf_pyscf_b + fock_udftobmp2_b 
 
         # DIIS
-        F_a = s1e @ mf_emb.mo_coeff[0] @ F_eff_mo_a @ mf_emb.mo_coeff[0].T @ s1e
-        F_b = s1e @ mf_emb.mo_coeff[1] @ F_eff_mo_b @ mf_emb.mo_coeff[1].T @ s1e
-        
-        C_occa = mp.mo_coeff[0][:, :nocca]
-        C_occb = mp.mo_coeff[1][:, :noccb]
-        
+        C_a = mf_emb.mo_coeff[0]
+        C_b = mf_emb.mo_coeff[1]
+
+        F_a = s1e @ C_a @ F_eff_mo_a @ C_a.T @ s1e
+        F_b = s1e @ C_b @ F_eff_mo_b @ C_b.T @ s1e
+
+        F_a = 0.5 * (F_a + F_a.T)
+        F_b = 0.5 * (F_b + F_b.T)
+
+        C_occa = C_a[:, :nocca]
+        C_occb = C_b[:, :noccb]
+
         D_a = numpy.einsum('pi,qi->pq', C_occa, C_occa, optimize=True)
         D_b = numpy.einsum('pi,qi->pq', C_occb, C_occb, optimize=True)
 
-        err_a_ao = F_a.dot(D_a).dot(s1e) - s1e.dot(D_a).dot(F_a)
-        err_ab_ao = F_a.dot(D_a).dot(s1e) - s1e.dot(D_b).dot(F_b)
-        err_ba_ao = F_b.dot(D_b).dot(s1e) - s1e.dot(D_a).dot(F_a)
-        err_a_mo = numpy.matmul(mp.mo_coeff[0].T,numpy.matmul(err_a_ao,mp.mo_coeff[0]))
-        err_b_ao = F_b.dot(D_b).dot(s1e) - s1e.dot(D_b).dot(F_b)
-        err_b_mo = numpy.matmul(mp.mo_coeff[1].T,numpy.matmul(err_b_ao,mp.mo_coeff[1]))
-        err_ab_mo = mp.mo_coeff[0].T @ err_ab_ao @ mp.mo_coeff[0]
-        err_ba_mo = mp.mo_coeff[0].T @ err_ba_ao @ mp.mo_coeff[0]
+        err_a_ao  = F_a @ D_a @ s1e - s1e @ D_a @ F_a
+        err_b_ao  = F_b @ D_b @ s1e - s1e @ D_b @ F_b
+        err_ab_ao = F_a @ D_a @ s1e - s1e @ D_b @ F_b
+        err_ba_ao = F_b @ D_b @ s1e - s1e @ D_a @ F_a
 
-        diis_r_a = (err_a_mo + err_b_mo + 50*err_ab_mo + 50*err_ba_mo).real
-        dRMS_a = numpy.mean(diis_r_a**2)**0.5
-        F_list_a.append(F_a)
-        DIIS_RESID_a.append(diis_r_a) 
+        r_a  = A.T @ err_a_ao  @ A
+        r_b  = A.T @ err_b_ao  @ A
+        r_ab = A.T @ err_ab_ao @ A
+        r_ba = A.T @ err_ba_ao @ A
 
-        if it >= 2:
-            B_dim_a = len(F_list_a) + 1
-            B_a = numpy.empty((B_dim_a, B_dim_a))
-            B_a[-1, :] = -1
-            B_a[:, -1] = -1
-            B_a[-1, -1] = 0
-            for i in range(len(F_list_a)):
-                for j in range(len(F_list_a)):
-                    B_a[i, j] = numpy.einsum('ij,ij->', DIIS_RESID_a[i], DIIS_RESID_a[j], optimize=True)
-
-            rhs_a = numpy.zeros((B_dim_a))
-            rhs_a[-1] = -1
-            coeff_a = numpy.linalg.solve(B_a, rhs_a)
-            
-            F_a = numpy.zeros_like(F_a)
-            for x in range(coeff_a.shape[0] - 1):
-                F_a += coeff_a[x] * F_list_a[x]
-
-        err_ab_mo_b = mp.mo_coeff[1].T @ err_ab_ao @ mp.mo_coeff[1]
-        err_ba_mo_b = mp.mo_coeff[1].T @ err_ba_ao @ mp.mo_coeff[1]
-        err_b_mo_b  = mp.mo_coeff[1].T @ err_b_ao  @ mp.mo_coeff[1]
-        err_a_mo_b  = mp.mo_coeff[1].T @ err_a_ao  @ mp.mo_coeff[1]
-        diis_r_b = (1*err_a_mo_b + 1*err_b_mo_b + 50*err_ab_mo_b + 50*err_ba_mo_b).real
-        dRMS_b = numpy.mean(diis_r_b**2)**0.5
-        dRMS = max(dRMS_a, dRMS_b)
+        diis_r = (r_a + r_b + 50.0 * r_ab + 50.0 * r_ba).real
+        dRMS = numpy.mean(diis_r**2) ** 0.5
 
         # Print tương ứng với method
         if is_hybrid:
@@ -570,35 +549,61 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         else:
             print(f"Iter {it}: E_corr={e_corr:.12f}, dE={de:.8e}, dRMS={dRMS:.8e}")
 
-        F_list_b.append(F_b)
-        DIIS_RESID_b.append(diis_r_b)
+        F_list_a.append(F_a.copy())
+        F_list_b.append(F_b.copy())
+        DIIS_RESID.append(diis_r.copy())
+
+        diis_space = int(getattr(mp, "diis_space", 8))
+        if diis_space < 1:
+            diis_space = 1
+
+        while len(DIIS_RESID) > diis_space:
+            F_list_a.pop(0)
+            F_list_b.pop(0)
+            DIIS_RESID.pop(0)
 
         if it >= 2:
-            B_dim_b = len(F_list_b) + 1
-            B_b = numpy.empty((B_dim_b, B_dim_b))
-            B_b[-1, :] = -1
-            B_b[:, -1] = -1
-            B_b[-1, -1] = 0
-            for i in range(len(F_list_b)):
-                for j in range(len(F_list_b)):
-                    B_b[i, j] = numpy.einsum('ij,ij->', DIIS_RESID_b[i], DIIS_RESID_b[j], optimize=True)
+            B_dim = len(DIIS_RESID) + 1
+            B = numpy.empty((B_dim, B_dim))
+            B[-1, :] = -1.0
+            B[:, -1] = -1.0
+            B[-1, -1] = 0.0
 
-            rhs_b = numpy.zeros((B_dim_b))
-            rhs_b[-1] = -1
-            coeff_b = numpy.linalg.solve(B_b, rhs_b)
-            
-            F_b = numpy.zeros_like(F_b)
-            for x in range(coeff_b.shape[0] - 1):
-                F_b += coeff_b[x] * F_list_b[x]
-        
-        F_a_mo = mf_emb.mo_coeff[0].T @ F_a @ mf_emb.mo_coeff[0] 
-        F_b_mo = mf_emb.mo_coeff[1].T @ F_b @ mf_emb.mo_coeff[1] 
+            for i in range(len(DIIS_RESID)):
+                for j in range(len(DIIS_RESID)):
+                    B[i, j] = numpy.einsum('ij,ij->', DIIS_RESID[i], DIIS_RESID[j], optimize=True)
+
+            rhs = numpy.zeros(B_dim)
+            rhs[-1] = -1.0
+
+            try:
+                coeff = numpy.linalg.solve(B, rhs)[:-1]
+            except numpy.linalg.LinAlgError:
+                coeff = numpy.linalg.lstsq(B, rhs, rcond=1e-12)[0][:-1]
+
+            F_a = numpy.zeros_like(F_list_a[0])
+            F_b = numpy.zeros_like(F_list_b[0])
+            for c, Fa_i, Fb_i in zip(coeff, F_list_a, F_list_b):
+                F_a += c * Fa_i
+                F_b += c * Fb_i
+
+            F_a = 0.5 * (F_a + F_a.T)
+            F_b = 0.5 * (F_b + F_b.T)
+
+        # Keep the orbital update inside the current CL/truncated MO subspace.
+        # Do NOT use scipy.linalg.eigh(F_a, s1e) here, because that would expand
+        # the solution back to the full AO space and destroy the truncation.
+        F_a_mo = C_a.T @ F_a @ C_a
+        F_b_mo = C_b.T @ F_b @ C_b
+
+        F_a_mo = 0.5 * (F_a_mo + F_a_mo.T)
+        F_b_mo = 0.5 * (F_b_mo + F_b_mo.T)
 
         eps_new_a, C_rot_a = scipy.linalg.eigh(F_a_mo)
         eps_new_b, C_rot_b = scipy.linalg.eigh(F_b_mo)
 
-        mo_coeff_new_a = mf_emb.mo_coeff[0] @ C_rot_a
-        mo_coeff_new_b = mf_emb.mo_coeff[1] @ C_rot_b
+        mo_coeff_new_a = C_a @ C_rot_a
+        mo_coeff_new_b = C_b @ C_rot_b
 
         mf_emb.mo_coeff  = (mo_coeff_new_a, mo_coeff_new_b)
         mf_emb.mo_energy = (eps_new_a,      eps_new_b)
