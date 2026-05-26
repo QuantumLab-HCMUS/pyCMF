@@ -87,6 +87,51 @@ def make_IPEA(mp):
 
     return ipea
 
+def mom_occ_(mp, mf_emb, mo_coeff_init):
+    """
+    Maximum Overlap Method for UHF-like alpha/beta orbitals.
+    """
+    from functools import reduce
+
+    nmoa = mf_emb.mo_coeff[0].shape[1]
+    nmob = mf_emb.mo_coeff[1].shape[1]
+    nocc_a = int(numpy.count_nonzero(mf_emb.mo_occ[0] > 0))
+    nocc_b = int(numpy.count_nonzero(mf_emb.mo_occ[1] > 0))
+
+    S = mp._scf.get_ovlp()
+
+    coef_occ_a = mo_coeff_init[0][:, :nocc_a]
+    coef_occ_b = mo_coeff_init[1][:, :nocc_b]
+
+    s_a = reduce(numpy.dot, (coef_occ_a.T, S, mf_emb.mo_coeff[0]))
+    s_b = reduce(numpy.dot, (coef_occ_b.T, S, mf_emb.mo_coeff[1]))
+
+    idx_a = numpy.argsort(numpy.einsum("ij,ij->j", s_a, s_a))[::-1]
+    idx_b = numpy.argsort(numpy.einsum("ij,ij->j", s_b, s_b))[::-1]
+
+    def _reorder(mo_c, mo_e, nocc, nmo, idx):
+        idx_occ = idx[:nocc]
+        idx_vir = idx[nocc:nmo]
+        c_new = numpy.empty_like(mo_c)
+        e_new = numpy.empty_like(mo_e)
+        c_new[:, :nocc]    = mo_c[:, idx_occ]
+        c_new[:, nocc:nmo] = mo_c[:, idx_vir]
+        e_new[:nocc]    = mo_e[idx_occ]
+        e_new[nocc:nmo] = mo_e[idx_vir]
+        return c_new, e_new
+
+    c_a, e_a = _reorder(mf_emb.mo_coeff[0], mf_emb.mo_energy[0], nocc_a, nmoa, idx_a)
+    c_b, e_b = _reorder(mf_emb.mo_coeff[1], mf_emb.mo_energy[1], nocc_b, nmob, idx_b)
+
+    occ_a = numpy.concatenate([numpy.ones(nocc_a),  numpy.zeros(nmoa - nocc_a)])
+    occ_b = numpy.concatenate([numpy.ones(nocc_b),  numpy.zeros(nmob - nocc_b)])
+
+    mf_emb.mo_coeff  = (c_a, c_b)
+    mf_emb.mo_energy = (e_a, e_b)
+    mf_emb.mo_occ    = (occ_a, occ_b)
+
+    return mf_emb
+
 def get_nocc(mp):
     if mp._nocc is not None: return mp._nocc
     nocca = numpy.count_nonzero(mp.mo_occ[0] > 0)
@@ -117,12 +162,16 @@ class BaseEmbedOBMP2(DFOBMP2):
         self._nocc = None
         self._nmo = None
         self.is_hybrid = True # Mặc định là OBDH (Hybrid)
+        self.mom_select = False
+        self.mom_start_cycle = 2
+        self.mom_in_embed = False
 
     get_nocc = get_nocc
     get_nmo = get_nmo
     make_S2 = make_S2
     make_amp = make_amp
     make_IPEA = make_IPEA
+    mom_occ_ = mom_occ_
 
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         if self.use_embed:
@@ -161,13 +210,13 @@ class BaseEmbedOBMP2(DFOBMP2):
             
             return e_tot, e_dft, gamma
 
-# Class cho OBDH (Hybrid)
+# Class OBDH (Hybrid)
 class UB2PLYPDFUOBMP2(BaseEmbedOBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
         self.is_hybrid = True 
 
-# Class cho OBMP2 (Pure)
+# Class OBMP2 (Pure)
 class UOBMP2(BaseEmbedOBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
