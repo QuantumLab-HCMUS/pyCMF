@@ -384,6 +384,40 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     nocca = numpy.count_nonzero(mf_emb.mo_occ[0] > 0)
     noccb = numpy.count_nonzero(mf_emb.mo_occ[1] > 0)
 
+    idx_a = numpy.argsort(mf_emb.mo_occ[0])[::-1]
+    idx_b = numpy.argsort(mf_emb.mo_occ[1])[::-1]
+
+    idx_occ_a = idx_a[:nocca]
+    idx_occ_b = idx_b[:noccb]
+    idx_vir_a = idx_a[nocca:nmoa]
+    idx_vir_b = idx_b[noccb:nmob]
+
+    mo_coeff_init = (
+        numpy.empty_like(mf_emb.mo_coeff[0]),
+        numpy.empty_like(mf_emb.mo_coeff[1]),
+    )
+
+    mo_coeff_init[0][:, :nocca] = mf_emb.mo_coeff[0][:, idx_occ_a]
+    mo_coeff_init[0][:, nocca:nmoa] = mf_emb.mo_coeff[0][:, idx_vir_a]
+
+    mo_coeff_init[1][:, :noccb] = mf_emb.mo_coeff[1][:, idx_occ_b]
+    mo_coeff_init[1][:, noccb:nmob] = mf_emb.mo_coeff[1][:, idx_vir_b]
+
+    mf_emb.mo_coeff = (
+        mo_coeff_init[0].copy(),
+        mo_coeff_init[1].copy(),
+    )
+
+    mf_emb.mo_energy = (
+        numpy.concatenate((mf_emb.mo_energy[0][idx_occ_a], mf_emb.mo_energy[0][idx_vir_a])),
+        numpy.concatenate((mf_emb.mo_energy[1][idx_occ_b], mf_emb.mo_energy[1][idx_vir_b])),
+    )
+
+    mf_emb.mo_occ = (
+        numpy.concatenate((numpy.ones(nocca), numpy.zeros(nmoa - nocca))),
+        numpy.concatenate((numpy.ones(noccb), numpy.zeros(nmob - noccb))),
+    )
+
     dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
     s1e = mf_emb.get_ovlp(mol)
     A = scipy.linalg.fractional_matrix_power(s1e, -0.5).real
@@ -411,6 +445,25 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         v_emb = [0, 0]
 
     for it in range(niter):
+
+        _mom_method = (
+        bool(getattr(mp, "mom_select", False))
+        and it >= int(getattr(mp, "mom_start_cycle", 2))
+        and (not mp.use_embed or bool(getattr(mp, "mom_in_embed", False)))
+        )
+
+        if _mom_method:
+            print(f"[MOM_method]: Running in iter {it}")
+            mf_emb = mp.mom_occ_(mf_emb, mo_coeff_init)
+
+            mp.mo_coeff  = mf_emb.mo_coeff
+            mp.mo_energy = mf_emb.mo_energy
+            mp.mo_occ    = mf_emb.mo_occ
+            mp._nocc     = (nocca, noccb)
+            mp._nmo      = (nmoa, nmob)
+
+            dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)  
+
         h1ao = mf_emb.get_hcore(mol)
         h1mo_a = numpy.matmul(mf_emb.mo_coeff[0].T, numpy.matmul(h1ao, mf_emb.mo_coeff[0]))
         h1mo_b = numpy.matmul(mf_emb.mo_coeff[1].T, numpy.matmul(h1ao, mf_emb.mo_coeff[1]))
