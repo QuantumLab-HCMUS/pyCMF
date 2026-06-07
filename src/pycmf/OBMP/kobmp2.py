@@ -70,6 +70,8 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2, verbose=logger.NOTE
     print('************** OBMP2 *************')
     # sort_idx = numpy.argsort(mo_energy)
     f = numpy.empty_like(mo_coeff)
+    # Bổ sung vào để kiểm tra k dfold
+    # niter = 1
     for it in range(niter):
         dm = mp._scf.make_rdm1(mo_coeff, mo_occ)
         # print("dm", dm)
@@ -151,12 +153,12 @@ def kernel(mp, mo_energy, mo_coeff, mo_occ, with_t2=WITH_T2, verbose=logger.NOTE
             # print(mo_coeff[k])
             # mo_energy[k] = mp.mo_energy[k][sort_idx[k]].real
     IP, EA = make_IPEA(mp, mo_energy, mo_coeff, fock_hf)
-    print('IP_v1 = ', IP[0] - mo_energy[nk][nocc - 1])
-    print('EA_c1 = ', EA[0] - mo_energy[nk][nocc])
-    print('IP_v2 = ', IP[1] - mo_energy[nk][nocc - 2])
-    print('EA_c2 = ', EA[1] - mo_energy[nk][nocc + 1])
-    print('IP_v3 = ', IP[2] - mo_energy[nk][nocc - 3])
-    print('EA_c3 = ', EA[2] - mo_energy[nk][nocc + 2])
+    # print('IP_v1 = ', IP[0] - mo_energy[nk][nocc - 1])
+    # print('EA_c1 = ', EA[0] - mo_energy[nk][nocc])
+    # print('IP_v2 = ', IP[1] - mo_energy[nk][nocc - 2])
+    # print('EA_c2 = ', EA[1] - mo_energy[nk][nocc + 1])
+    # print('IP_v3 = ', IP[2] - mo_energy[nk][nocc - 3])
+    # print('EA_c3 = ', EA[2] - mo_energy[nk][nocc + 2])
     return ene_tot, mo_energy, mo_coeff, tmp1, tmp1_bar, c1, fock_hf, c0_1st
 
 
