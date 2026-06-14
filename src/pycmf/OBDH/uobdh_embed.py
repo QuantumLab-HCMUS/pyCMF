@@ -304,10 +304,7 @@ def embed_kernel(mp):
     print(f"Ref DFT Energy                  : {ks_full.e_tot:.8f} Eh")
     print(f"Difference (Gain)               : {(e_final - ks_full.e_tot)*1e6:.2f} uEh")
     print("=" * 60)
-
-    dm_total_final = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
-    mp.dip_mom = np.linalg.norm(make_dipole(mol, dm_total_final))
-    print(f"Norm of Dipole Moment       : {mp.dip_mom}")
-    print("=" * 60)
     
+    mp._gamma = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
+
     return e_final, ks_full.e_tot

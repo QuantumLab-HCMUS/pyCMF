@@ -16,6 +16,16 @@ from .uobdh_embed import embed_kernel
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
 
+# --- Hàm tiện ích nội bộ, không gán vào class để tránh shadow ---
+def _calc_dipole_norm(mol, gamma):
+    """Tính norm dipole moment (Debye) từ density matrix tuple (alpha, beta)."""
+    return numpy.linalg.norm(scf.hf.dip_moment(mol, gamma, unit='Debye'))
+
+def _calc_mulliken(mol, gamma):
+    """Tính Mulliken charges từ density matrix tuple (alpha, beta)."""
+    dm_total = gamma[0] + gamma[1]
+    return scf.hf.mulliken_charges(mol, dm_total)
+
 def make_S2(mp, tmp1_bar_ab):
     mo_coeff = mp.mo_coeff
     mo_occ   = mp.mo_occ
@@ -152,6 +162,7 @@ class BaseEmbedOBMP2(DFOBMP2):
         self.active_atoms = []
         self.n_shells = 1
         self.mu = 1e6
+
         self.alphaa = (0.5, 0.5)
         self.niter = 300
         self.thresh = 1e-6
@@ -162,9 +173,12 @@ class BaseEmbedOBMP2(DFOBMP2):
         self._nocc = None
         self._nmo = None
         self.is_hybrid = True # Mặc định là OBDH (Hybrid)
+        
         self.mom_select = False
         self.mom_start_cycle = 2
         self.mom_in_embed = False
+ 
+        self._gamma            = None   
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -172,6 +186,18 @@ class BaseEmbedOBMP2(DFOBMP2):
     make_amp = make_amp
     make_IPEA = make_IPEA
     mom_occ_ = mom_occ_
+    
+    @property
+    def dip_mom(self):
+        if self._gamma is None:
+            raise RuntimeError("Need to run kernel().")
+        return numpy.linalg.norm(scf.hf.dip_moment(self.mol, self._gamma, unit='Debye'))
+
+    @property
+    def mulliken_charges(self):
+        if self._gamma is None:
+            raise RuntimeError("Need to run kernel().")
+        return scf.hf.mulliken_pop(self.mol, self._gamma[0] + self._gamma[1])
 
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         if self.use_embed:
@@ -194,7 +220,7 @@ class BaseEmbedOBMP2(DFOBMP2):
             mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
             mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
             
-            e_returned, e_dft, gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
+            e_returned, e_dft, self._gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
             
             if self.is_hybrid:
                 e_tot = e_returned 
@@ -203,12 +229,9 @@ class BaseEmbedOBMP2(DFOBMP2):
 
             print("-" * 60)
             print(f"Total Standard Energy = {e_tot:.8f} Eh")
-            
-            self.dip_mom = numpy.linalg.norm(scf.hf.dip_moment(self.mol, gamma, unit='Debye'))
-            print(f"Norm of Dipole Moment = {self.dip_mom}")
             print("=" * 60)
             
-            return e_tot, e_dft, gamma
+            return e_tot, e_dft, self._gamma
 
 # Class OBDH (Hybrid)
 class UB2PLYPDFUOBMP2(BaseEmbedOBMP2):
