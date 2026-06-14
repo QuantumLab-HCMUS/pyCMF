@@ -204,8 +204,8 @@ class BaseEmbedOBMP2(DFOBMP2):
             print("-" * 60)
             print(f"Total Standard Energy = {e_tot:.8f} Eh")
             
-            dip_mom = numpy.linalg.norm(scf.hf.dip_moment(self.mol, gamma, unit='Debye'))
-            print(f"Norm of Dipole Moment = {dip_mom}")
+            self.dip_mom = numpy.linalg.norm(scf.hf.dip_moment(self.mol, gamma, unit='Debye'))
+            print(f"Norm of Dipole Moment = {self.dip_mom}")
             print("=" * 60)
             
             return e_tot, e_dft, gamma
