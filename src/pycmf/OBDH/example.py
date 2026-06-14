@@ -29,13 +29,15 @@ mppp_obdh_std = OBDH_CL(mf)
 mppp_obdh_std.alphaa = (0.53, 0.39)
 mppp_obdh_std.thresh = 1e-06
 mppp_obdh_std.second_order = True
-mppp_obdh_std.mom_select= True
+mppp_obdh_std.mom_select= False
 mppp_obdh_std.mom_start_cycle = 0
 mppp_obdh_std.use_embed = False  # Disable Embedding
 mppp_obdh_std.use_cl = False     # Ignored when use_embed is False
 
 start1 = time.time()
 mppp_obdh_std.run()
+print(mppp_obdh_std.dip_mom)
+print(mppp_obdh_std.mulliken_charges)
 print('=> Runtime (OBDH Standard): {:.4f} seconds'.format(time.time() - start1))
 
 
