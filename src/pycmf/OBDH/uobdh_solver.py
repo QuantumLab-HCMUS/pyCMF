@@ -430,7 +430,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     ks = dft.UKS(mol)
     ks.xc = xc_code
     ks.verbose = 0
-    ks = ks.density_fit()
+    ks.with_df = mp.with_df
 
     F_list_a = []
     F_list_b = []

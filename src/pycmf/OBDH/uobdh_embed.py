@@ -8,11 +8,14 @@ from .uobdh_solver import obmp2_iter
 def make_dipole(mol, dm_embed):
     return scf.hf.dip_moment(mol, dm_embed, unit='Debye')
 
-def run_full_dft(mol, xc):
+def run_full_dft(mol, xc, df_obj=None):
     ks = dft.UKS(mol)
     ks.xc = xc
     ks.verbose = 0
-    ks = ks.density_fit() 
+    if df_obj is not None:
+        ks.with_df = df_obj
+    else:
+        ks = ks.density_fit() 
     ks.kernel()
     return ks
 
@@ -95,7 +98,7 @@ def build_embedding_potential(mol, xc_code, S, mu, mf_full, gamma_B_tuple, gamma
     mf_tmp = dft.UKS(mol)
     mf_tmp.xc = xc_code
     mf_tmp.verbose = 0
-    mf_tmp = mf_tmp.density_fit()
+    mf_tmp.with_df = mf_full.with_df
     veff_A = mf_tmp.get_veff(mol, dm_A)
     
     P_B_a = S @ gamma_B_tuple[0] @ S
@@ -115,6 +118,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
 
     mf_emb = scf.UHF(mol_emb)
     mf_emb.verbose = 0
+    mf_emb.with_df = mp.with_df
     original_get_veff = mf_emb.get_veff
 
     def get_veff_emb(mol, dm, dm_last=0, vhf_last=0):
@@ -202,7 +206,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
         mf_tmp = dft.UKS(mol)
         mf_tmp.xc = xc
         mf_tmp.verbose = 0
-        mf_tmp = mf_tmp.density_fit()
+        mf_tmp.with_df = mp.with_df
         
         # 1e- and 2e- energy from UOBMP2 density but isolated nuclei core
         e_elec_meanfield, _ = mf_tmp.energy_elec([gamma_uobmp2_a, gamma_uobmp2_b], h1e=h_core_A_iso)
@@ -233,7 +237,7 @@ def embed_kernel(mp):
     print(f'{method_name}-IN-DFT EMBEDDING WITH SPADE PARTITIONING')
     print('='*70)
     print('\n--- STEP 1: Running Full System DFT ---')
-    ks_full = run_full_dft(mol, xc_code)
+    ks_full = run_full_dft(mol, xc_code, df_obj=mp.with_df)
     print(f"Full DFT Energy: {ks_full.e_tot:.8f} Eh")
     h_core_full = ks_full.get_hcore()
 
