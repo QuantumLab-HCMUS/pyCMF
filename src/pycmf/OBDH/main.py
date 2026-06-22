@@ -215,7 +215,7 @@ class BaseEmbedOBMP2(DFOBMP2):
             
             xc_code = f"{self.alphaa[0]}*HF + {1-self.alphaa[0]}*B88, {1-self.alphaa[1]}*LYP"
             
-            mf_std = copy.copy(self._scf)
+            mf_std = self._scf.copy()
             mf_std.mo_coeff = (self._scf.mo_coeff[0].copy(), self._scf.mo_coeff[1].copy())
             mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
             mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
