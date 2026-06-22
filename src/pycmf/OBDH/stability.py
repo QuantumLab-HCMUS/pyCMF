@@ -36,10 +36,10 @@ def stabilize_scf(mf, max_macro_cycles=5, verbose=True):
             
             # Khởi tạo bộ giải bậc hai
             mf_newton = mf.newton()
-            
             # Ép hội tụ dọc theo vector nhiễu loạn mo_new
             mf_newton.kernel(mo_coeff=mo_new, mo_occ=mf.mo_occ)
-            
+            if not mf_newton.converged and verbose:
+                print("   -> [Warning] Newton solver did not converge this cycle.")
             # Đồng bộ hóa lại các thuộc tính quan trọng cho mf gốc
             mf.mo_coeff = mf_newton.mo_coeff
             mf.mo_energy = mf_newton.mo_energy

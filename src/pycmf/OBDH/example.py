@@ -7,11 +7,11 @@ from pycmf.OBDH import OBDH_CL, OBMP2_CL
 from pycmf.OBDH.stability import stabilize_scf
 
 mol = gto.Mole()
-mol.atom = 'H 0 0 0; H 0 0 0.74'
+mol.atom = 'P 0 0 0; S 0 0 1.9'
 mol.charge = 0
-mol.spin = 0
+mol.spin = 1
 mol.verbose = 0
-mol.basis = 'sto-3g'
+mol.basis = 'aug-cc-pcvqz'
 mol.build()
 
 # Run UHF once to serve as the reference for all 4 cases
