@@ -119,6 +119,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     mf_emb = scf.UHF(mol_emb)
     mf_emb.verbose = 0
     mf_emb.with_df = mp.with_df
+    mf_emb.with_df.mol = mol_emb
     original_get_veff = mf_emb.get_veff
 
     def get_veff_emb(mol, dm, dm_last=0, vhf_last=0):
