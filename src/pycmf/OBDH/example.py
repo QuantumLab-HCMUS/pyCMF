@@ -7,11 +7,15 @@ from pycmf.OBDH import OBDH_CL, OBMP2_CL
 from pycmf.OBDH.stability import stabilize_scf
 
 mol = gto.Mole()
-mol.atom = 'P 0 0 0; S 0 0 1.9'
+mol.atom = '''
+Si     0.0000  0.0000  0.0000
+H      0.0000  0.0000  1.5201
+'''
+
 mol.charge = 0
 mol.spin = 1
 mol.verbose = 0
-mol.basis = 'aug-cc-pcvqz'
+mol.basis = {'default': 'aug-cc-pvdz', 'H': 'aug-cc-pvqz'}
 mol.build()
 
 # Run UHF once to serve as the reference for all 4 cases
@@ -25,9 +29,9 @@ mf = stabilize_scf(mf, max_macro_cycles=10, verbose=True)
 # CASE 1: STANDARD OBDH (HYBRID) - NO EMBEDDING
 # ==============================================================================
 print("\n" + ">"*10 + " CASE 1: STANDARD OBDH (NO EMBEDDING) " + "<"*10)
-mppp_obdh_std = OBDH_CL(mf)
+mppp_obdh_std = OBMP2_CL(mf)
 mppp_obdh_std.alphaa = (0.53, 0.39)
-mppp_obdh_std.thresh = 1e-06
+mppp_obdh_std.thresh = 1e-08
 mppp_obdh_std.second_order = True
 mppp_obdh_std.mom_select= False
 mppp_obdh_std.mom_start_cycle = 0
@@ -36,6 +40,7 @@ mppp_obdh_std.use_cl = False     # Ignored when use_embed is False
 
 start1 = time.time()
 mppp_obdh_std.run()
+print(mppp_obdh_std.converged)
 print(mppp_obdh_std.dip_mom)
 #print(mppp_obdh_std.mulliken_charges)
 print('=> Runtime (OBDH Standard): {:.4f} seconds'.format(time.time() - start1))

@@ -179,6 +179,7 @@ class BaseEmbedOBMP2(DFOBMP2):
         self.mom_in_embed = False
  
         self._gamma            = None   
+        self.converged = None
 
     get_nocc = get_nocc
     get_nmo = get_nmo
