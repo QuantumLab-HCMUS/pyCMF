@@ -670,6 +670,6 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     
         dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
         dm = lib.tag_array(dm, mo_coeff=mf_emb.mo_coeff, mo_occ=mf_emb.mo_occ)
-
+    mp.converged = conv
     dm_total = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
     return e_tot, ene_dft, (dm_total[0], dm_total[1])
