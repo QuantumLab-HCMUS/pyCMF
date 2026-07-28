@@ -14,7 +14,7 @@ H      0.0000  0.0000  1.5201
 
 mol.charge = 0
 mol.spin = 1
-mol.verbose = 0
+mol.verbose = 4
 mol.basis = {'default': 'aug-cc-pvdz', 'H': 'aug-cc-pvqz'}
 mol.build()
 
@@ -25,44 +25,44 @@ mf.kernel()
 
 mf = stabilize_scf(mf, max_macro_cycles=10, verbose=True)
 
-# ==============================================================================
-# CASE 1: STANDARD OBDH (HYBRID) - NO EMBEDDING
-# ==============================================================================
-print("\n" + ">"*10 + " CASE 1: STANDARD OBDH (NO EMBEDDING) " + "<"*10)
-mppp_obdh_std = OBMP2_CL(mf)
-mppp_obdh_std.alphaa = (0.53, 0.39)
-mppp_obdh_std.thresh = 1e-08
-mppp_obdh_std.second_order = True
-mppp_obdh_std.mom_select= False
-mppp_obdh_std.mom_start_cycle = 0
-mppp_obdh_std.use_embed = False  # Disable Embedding
-mppp_obdh_std.use_cl = False     # Ignored when use_embed is False
-
-start1 = time.time()
-mppp_obdh_std.run()
-print(mppp_obdh_std.converged)
-print(mppp_obdh_std.dip_mom)
-#print(mppp_obdh_std.mulliken_charges)
-print('=> Runtime (OBDH Standard): {:.4f} seconds'.format(time.time() - start1))
-
-
 # # ==============================================================================
-# # CASE 2: EMBEDDED OBDH (HYBRID) + CONCENTRIC LOCALIZATION (CL)
+# # CASE 1: STANDARD OBDH (HYBRID) - NO EMBEDDING
 # # ==============================================================================
-# print("\n" + ">"*10 + " CASE 2: EMBEDDED OBDH + CL TRUNCATION " + "<"*10)
-# mppp_obdh_emb = OBDH_CL(mf)
-# mppp_obdh_emb.alphaa = (0.53, 0.39)
-# mppp_obdh_emb.thresh = 1e-08
-# mppp_obdh_emb.second_order = True
-# mppp_obdh_emb.use_embed = True   # Enable Embedding
-# mppp_obdh_emb.active_atoms = [i for i in range(9)] # Set active system to Oxygen atom
-# mppp_obdh_emb.mu = 1e6
-# mppp_obdh_emb.use_cl = False      # Enable CL Truncation
-# mppp_obdh_emb.n_shells = 1
+# print("\n" + ">"*10 + " CASE 1: STANDARD OBDH (NO EMBEDDING) " + "<"*10)
+# mppp_obdh_std = OBMP2_CL(mf)
+# mppp_obdh_std.alphaa = (0.53, 0.39)
+# mppp_obdh_std.thresh = 1e-08
+# mppp_obdh_std.second_order = True
+# mppp_obdh_std.mom_select= False
+# mppp_obdh_std.mom_start_cycle = 0
+# mppp_obdh_std.use_embed = False  # Disable Embedding
+# mppp_obdh_std.use_cl = False     # Ignored when use_embed is False
 
-# start2 = time.time()
-# mppp_obdh_emb.run()
-# print('=> Runtime (OBDH Embed + CL): {:.4f} seconds'.format(time.time() - start2))
+# start1 = time.time()
+# mppp_obdh_std.run()
+# print(mppp_obdh_std.converged)
+# print(mppp_obdh_std.dip_mom)
+# #print(mppp_obdh_std.mulliken_charges)
+# print('=> Runtime (OBDH Standard): {:.4f} seconds'.format(time.time() - start1))
+
+
+# ==============================================================================
+# CASE 2: EMBEDDED OBDH (HYBRID) + CONCENTRIC LOCALIZATION (CL)
+# ==============================================================================
+print("\n" + ">"*10 + " CASE 2: EMBEDDED OBDH + CL TRUNCATION " + "<"*10)
+mppp_obdh_emb = OBDH_CL(mf)
+mppp_obdh_emb.alphaa = (0.53, 0.39)
+mppp_obdh_emb.thresh = 1e-08
+mppp_obdh_emb.second_order = True
+mppp_obdh_emb.use_embed = True   # Enable Embedding
+mppp_obdh_emb.active_atoms = [0] # Set active system to Oxygen atom
+mppp_obdh_emb.mu = 1e6
+mppp_obdh_emb.use_cl = False      # Enable CL Truncation
+mppp_obdh_emb.n_shells = 1
+
+start2 = time.time()
+mppp_obdh_emb.run()
+print('=> Runtime (OBDH Embed + CL): {:.4f} seconds'.format(time.time() - start2))
 
 
 # # ==============================================================================

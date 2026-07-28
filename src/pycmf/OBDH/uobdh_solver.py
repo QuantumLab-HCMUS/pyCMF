@@ -427,9 +427,9 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     
     is_hybrid = getattr(mp, 'is_hybrid', True)
 
-    ks = dft.UKS(mol)
+    ks = dft.UKS(mol).density_fit()
     ks.xc = xc_code
-    ks.verbose = 0
+    ks.verbose = mol.verbose
     ks.with_df = mp.with_df
 
     F_list_a = []
