@@ -9,13 +9,12 @@ def make_dipole(mol, dm_embed):
     return scf.hf.dip_moment(mol, dm_embed, unit='Debye')
 
 def run_full_dft(mol, xc, df_obj=None):
-    ks = dft.UKS(mol)
+    ks = dft.UKS(mol).density_fit()      
     ks.xc = xc
-    ks.verbose = 0
+    ks.verbose = mol.verbose             
     if df_obj is not None:
-        ks.with_df = df_obj
-    else:
-        ks = ks.density_fit() 
+        ks.with_df = df_obj              
+    ks.grids.level = 3                   
     ks.kernel()
     return ks
 
@@ -95,9 +94,9 @@ def build_embedding_potential(mol, xc_code, S, mu, mf_full, gamma_B_tuple, gamma
     
     veff_full = mf_full.get_veff(mol, dm_full)
     
-    mf_tmp = dft.UKS(mol)
+    mf_tmp = dft.UKS(mol).density_fit()
     mf_tmp.xc = xc_code
-    mf_tmp.verbose = 0
+    mf_tmp.verbose = mol.verbose
     mf_tmp.with_df = mf_full.with_df
     veff_A = mf_tmp.get_veff(mol, dm_A)
     
@@ -116,8 +115,8 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     mol_emb.nelectron = na + nb
     mol_emb.spin = na - nb
 
-    mf_emb = scf.UHF(mol_emb)
-    mf_emb.verbose = 0
+    mf_emb = scf.UHF(mol_emb).density_fit() 
+    mf_emb.verbose = mol.verbose
     mf_emb.with_df = mp.with_df
     mf_emb.with_df.mol = mol_emb
     original_get_veff = mf_emb.get_veff
@@ -204,9 +203,9 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     else:
         # PURE OBMP2 Energy logic
         gamma_uobmp2_a, gamma_uobmp2_b = gamma_uobmp2
-        mf_tmp = dft.UKS(mol)
+        mf_tmp = dft.UKS(mol).density_fit()
         mf_tmp.xc = xc
-        mf_tmp.verbose = 0
+        mf_tmp.verbose = mol.verbose
         mf_tmp.with_df = mp.with_df
         
         # 1e- and 2e- energy from UOBMP2 density but isolated nuclei core
