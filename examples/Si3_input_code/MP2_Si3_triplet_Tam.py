@@ -1,24 +1,22 @@
 import numpy
 from pyscf import gto, scf, mp
 import basis_set_exchange as bse
+import numpy as np
 
-XYZ_FILE   = "Si3-neutral-triplet_CT.xyz"
-FROZEN     = 15        # Si [Ne] core = 5 orb/atom x 3 atoms.
-
-# Basis: aug-cc-pV(D+d)Z for Si triplet
-si_basis = gto.basis.parse(bse.get_basis("aug-cc-pV(D+d)Z", elements=["Si"], fmt="nwchem"))
-
-# Read geometry from file
-lines = open(XYZ_FILE).read().splitlines()
-natom = int(lines[0])
-atoms = []
-for line in lines[2:2 + natom]:
-    s = line.split()
-    atoms.append([s[0], (float(s[1]), float(s[2]), float(s[3]))])
+HARTREE2KJ = 2625.499639
+FROZEN     = 15                    # Si[Ne] core x 3 atoms (valence-only)
+BASIS      = "aug-cc-pV(D+d)Z"
+#BASIS      = "aug-cc-pV(T+d)Z"
+si_basis   = gto.basis.parse(bse.get_basis(BASIS, elements=["Si"], fmt="nwchem"))
 
 # Build molecule
+# --- TRIPLET geometry: equilateral triangle, side = 2.307 A ---------------
+SIDE = 2.307
+R    = SIDE / np.sqrt(3.0)                       # circumradius
+triplet_atoms = [["Si",(R*np.cos(a), R*np.sin(a), 0.0)]
+                 for a in np.radians([90.0, 210.0, 330.0])]
 mol = gto.Mole()
-mol.atom       = atoms
+mol.atom       = triplet_atoms
 mol.basis      = {"Si": si_basis}
 mol.charge     = 0
 mol.spin       = 2            # 2S = 2 -> triplet (open shell)
@@ -41,7 +39,6 @@ mymp.kernel()
 E_triplet = mf.e_tot + mymp.e_corr
 
 print("\n" + "=" * 64)
-print(f"geometry file            : {XYZ_FILE}")
 print("basis                    : aug-cc-pV(D+d)Z")
 print(f"frozen core orbitals     : {FROZEN}")
 print(f"UHF <S^2>                : {mf.spin_square()[0]:.13f}")

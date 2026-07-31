@@ -12,7 +12,7 @@ print("lib.param.MAX_MEMORY = ", lib.param.MAX_MEMORY)
 print("available memory = ", psutil.virtual_memory().available / 1024**3)
 
 
-BASIS    = "aug-cc-pV(T+d)Z"
+BASIS    = "aug-cc-pV(D+d)Z"
 
 # Basis: aug-cc-pV(T+d)Z for Si singlet
 si_basis = gto.basis.parse(bse.get_basis(f"{BASIS}", elements=["Si"], fmt="nwchem"))
@@ -53,8 +53,8 @@ e_rhf = myrhf.kernel()
 
 # CASCI(12,12)
 mycas = mcscf.CASCI(myrhf, ncas=num_orbitals, nelecas=sum(num_particles))
-mo = mycas.sort_mo(active_space, base=0)
-e_casci = mycas.run().e_tot
+mo = mcscf.sort_mo(casscf=mycas, mo_coeff=myrhf.mo_coeff, caslst=caslist_a, base=1)
+e_casci, _, _, _, _ = mycas.kernel(mo_coeff=mo)
 
 hf_mo_sorted = mcscf.sort_mo(mycas, myrhf.mo_coeff, caslist_a)
 

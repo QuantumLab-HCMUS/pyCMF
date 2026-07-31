@@ -56,14 +56,17 @@ ss_uhf, mult_uhf = myuhf.spin_square()
 
 # UCASCI(12e in 12o, 7a/5b)
 mycas = mcscf.UCASCI(myuhf, ncas=num_orbitals, nelecas=(nalpha, nbeta))
-mo = mcscf.sort_mo(mycas, myuhf.mo_coeff, caslist)
-e_casci = mycas.kernel(mo)[0]
+mo_sorted = mcscf.sort_mo(mycas, myuhf.mo_coeff, caslist, base=1)
+e_casci, _, _ = mycas.kernel(mo_coeff=mo_sorted)
 
 # UOBMP2 (full space)
 uobmp = UOBMP2(myuhf)
+uobmp.niter = 1 
 uobmp.second_order = True
 uobmp.kernel()
 e_uobmp2 = getattr(uobmp, "ene_tot", None)
+print(f"E(UOBMP2)                : {e_uobmp2:.13f}")
+exit()
 
 # UOBMP2 DOWNFOLDING
 omp2_mo_sorted = mcscf.sort_mo(mycas, uobmp.mo_coeff, caslist)
