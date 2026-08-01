@@ -43,6 +43,7 @@ def stabilize_scf(mf, max_macro_cycles=5, verbose=True):
             # Đồng bộ hóa lại các thuộc tính quan trọng cho mf gốc
             mf.mo_coeff = mf_newton.mo_coeff
             mf.mo_energy = mf_newton.mo_energy
+            mf.mo_occ    = mf_newton.mo_occ
             mf.e_tot = mf_newton.e_tot
         else:
             if verbose:
