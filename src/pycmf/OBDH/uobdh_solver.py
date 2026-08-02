@@ -229,102 +229,94 @@ def second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0):
     nocca, noccb = mp.get_nocc()
     nmoa, nmob = mp.get_nmo()
 
-    c1_a = numpy.zeros((nmoa,nmoa), dtype=fock_hfa.dtype)
-    c1_b = numpy.zeros((nmob,nmob), dtype=fock_hfb.dtype)
-    
-    #[1]
-    y1_a = lib.einsum('ij,ijkl -> kl', fock_hfa[:nocca,nocca:], tmp1_bar_aa)
-    y1_a += lib.einsum('ij,ijkl -> kl', fock_hfb[:noccb,noccb:], tmp1_bar_ba)
-    c1_a[:nocca,nocca:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_aa,y1_a)
-    c1_b[:noccb,noccb:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_ba,y1_a)
-    
-    y1_b = lib.einsum('ij,ijkl -> kl', fock_hfb[:noccb,noccb:], tmp1_bar_bb)
-    y1_b += lib.einsum('ij,ijkl -> kl', fock_hfa[:nocca,nocca:], tmp1_bar_ab)
-    c1_a[:nocca,nocca:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_ab,y1_b)
-    c1_b[:noccb,noccb:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_bb,y1_b)
+    log = logger.new_logger(mp, verbose=5)
+    t0 = (time.process_time(), time.perf_counter())
+    detail = bool(getattr(mp, "timer_detail", False))
+    from pyscf.lib import current_memory
 
-    #[2]
-    y1_aa = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_aa)
-    y1_ab = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_ab)
-    y1_ba = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_ba)
-    y1_bb = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_bb)
-    c1_a[:nocca,:nocca] += lib.einsum('iajb,iakb -> jk', tmp1_aa, y1_aa)
-    c1_a[:nocca,:nocca] += lib.einsum('iajb,iakb -> jk', tmp1_ba, y1_ba)
-    c1_b[:noccb,:noccb] += lib.einsum('iajb,iakb -> jk', tmp1_bb, y1_bb)
-    c1_b[:noccb,:noccb] += lib.einsum('iajb,iakb -> jk', tmp1_ab, y1_ab)
-    
-    c0 -= lib.einsum('ijkl,ijkl->', tmp1_aa,y1_aa) + lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
-    c0 -= lib.einsum('ijkl,ijkl->', tmp1_ab,y1_ab) + lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
+    c1_a = numpy.zeros((nmoa, nmoa), dtype=fock_hfa.dtype)
+    c1_b = numpy.zeros((nmob, nmob), dtype=fock_hfb.dtype)
 
-    #[3]
-    y1_aa = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_aa)
-    y1_ab = lib.einsum('ac,kcjb -> kajb',fock_hfa[nocca:,nocca:],tmp1_bar_ab)
-    y1_ba = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_ba)
-    y1_bb = lib.einsum('ac,kcjb -> kajb',fock_hfb[noccb:,noccb:],tmp1_bar_bb)
-    c1_a[:nocca,:nocca] += lib.einsum('iajb,kajb -> ik', tmp1_aa, y1_aa)
-    c1_a[:nocca,:nocca] += lib.einsum('iajb,kajb -> ik', tmp1_ab, y1_ab)
-    c1_b[:noccb,:noccb] += lib.einsum('iajb,kajb -> ik', tmp1_bb, y1_bb)
-    c1_b[:noccb,:noccb] += lib.einsum('iajb,kajb -> ik', tmp1_ba, y1_ba)
-                            
-    #[4]
-    y1_aa = lib.einsum('ik,kalb -> ialb',fock_hfa[:nocca,:nocca],tmp1_bar_aa)
-    y1_ab = lib.einsum('ik,kalb -> ialb',fock_hfa[:nocca,:nocca],tmp1_bar_ab)
-    y1_ba = lib.einsum('ik,kalb -> ialb',fock_hfb[:noccb,:noccb],tmp1_bar_ba)
-    y1_bb = lib.einsum('ik,kalb -> ialb',fock_hfb[:noccb,:noccb],tmp1_bar_bb)
-    c1_a[:nocca,:nocca] -= lib.einsum('iajb,ialb -> jl', tmp1_aa, y1_aa)
-    c1_a[:nocca,:nocca] -= lib.einsum('iajb,ialb -> jl', tmp1_ba, y1_ba)
-    c1_b[:noccb,:noccb] -= lib.einsum('iajb,ialb -> jl', tmp1_bb, y1_bb)
-    c1_b[:noccb,:noccb] -= lib.einsum('iajb,ialb -> jl', tmp1_ab, y1_ab)
-    
-    c0 += lib.einsum('ijkl,ijkl->', tmp1_aa,y1_aa) + lib.einsum('ijkl,ijkl->', tmp1_bb,y1_bb)
-    c0 += lib.einsum('ijkl,ijkl->', tmp1_ab,y1_ab) + lib.einsum('ijkl,ijkl->', tmp1_ba,y1_ba)
+    # ---- Block [1]: giữ nguyên, chi phí không đáng kể ----
+    y1_a = lib.einsum('ij,ijkl -> kl', fock_hfa[:nocca, nocca:], tmp1_bar_aa)
+    y1_a += lib.einsum('ij,ijkl -> kl', fock_hfb[:noccb, noccb:], tmp1_bar_ba)
+    c1_a[:nocca, nocca:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_aa, y1_a)
+    c1_b[:noccb, noccb:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_ba, y1_a)
 
-    #[5]
-    y1_a  = lib.einsum('iajb,kajb -> ik', tmp1_aa, tmp1_bar_aa)
-    y1_a += lib.einsum('iajb,kajb -> ik', tmp1_ab, tmp1_bar_ab)
-    c1_a[:,:nocca] -= lib.einsum('pk,ik -> pi', fock_hfa[:,:nocca], y1_a)
+    y1_b = lib.einsum('ij,ijkl -> kl', fock_hfb[:noccb, noccb:], tmp1_bar_bb)
+    y1_b += lib.einsum('ij,ijkl -> kl', fock_hfa[:nocca, nocca:], tmp1_bar_ab)
+    c1_a[:nocca, nocca:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_ab, y1_b)
+    c1_b[:noccb, noccb:] += lib.einsum('ijkl,kl -> ij', tmp1_bar_bb, y1_b)
 
-    y1_b  = lib.einsum('iajb,kajb -> ik', tmp1_bb, tmp1_bar_bb)
-    y1_b += lib.einsum('iajb,kajb -> ik', tmp1_ba, tmp1_bar_ba)
-    c1_b[:,:noccb] -= lib.einsum('pk,ik -> pi', fock_hfb[:,:noccb], y1_b)
-    
-    #[6]
-    y1_aa = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_aa)
-    y1_ab = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_ab)
-    y1_ba = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_ba)
-    y1_bb = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_bb)
-    c1_a[nocca:,nocca:] += lib.einsum('iajb,iajd -> bd', tmp1_aa, y1_aa)
-    c1_a[nocca:,nocca:] += lib.einsum('iajb,iajd -> bd', tmp1_ba, y1_ba)
-    c1_b[noccb:,noccb:] += lib.einsum('iajb,iajd -> bd', tmp1_bb, y1_bb)
-    c1_b[noccb:,noccb:] += lib.einsum('iajb,iajd -> bd', tmp1_ab, y1_ab)
+    if detail:
+        log.timer('  second BCH [1]', *t0)
 
-    #[7]
-    y1_aa = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_aa)
-    y1_ab = lib.einsum('ik,kajd -> iajd',fock_hfa[:nocca,:nocca],tmp1_bar_ab)
-    y1_ba = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_ba)
-    y1_bb = lib.einsum('ik,kajd -> iajd',fock_hfb[:noccb,:noccb],tmp1_bar_bb)
-    c1_a[nocca:,nocca:] += lib.einsum('iajb,icjb -> ac', tmp1_aa, y1_aa)
-    c1_a[nocca:,nocca:] += lib.einsum('iajb,icjb -> ac', tmp1_ab, y1_ab)
-    c1_b[noccb:,noccb:] += lib.einsum('iajb,icjb -> ac', tmp1_bb, y1_bb)
-    c1_b[noccb:,noccb:] += lib.einsum('iajb,icjb -> ac', tmp1_ba, y1_ba)
+    # ---- Block [2]-[9]: gộp, duyệt từng cặp spin một lần ----
+    c1 = {'a': c1_a, 'b': c1_b}
+    nocc = {'a': nocca, 'b': noccb}
+    fock = {'a': fock_hfa, 'b': fock_hfb}
+    acc_o = {'a': None, 'b': None}   # tích luỹ cho [5]
+    acc_v = {'a': None, 'b': None}   # tích luỹ cho [9]
 
-    #[8]
-    y1_aa = lib.einsum('ac,icjd -> iajd',fock_hfa[nocca:,nocca:],tmp1_bar_aa)
-    y1_ab = lib.einsum('ac,icjd -> iajd',fock_hfa[nocca:,nocca:],tmp1_bar_ab)
-    y1_ba = lib.einsum('ac,icjd -> iajd',fock_hfb[noccb:,noccb:],tmp1_bar_ba)
-    y1_bb = lib.einsum('ac,icjd -> iajd',fock_hfb[noccb:,noccb:],tmp1_bar_bb)
-    c1_a[nocca:,nocca:] -= lib.einsum('iajb,iajd -> bd', tmp1_aa, y1_aa)
-    c1_a[nocca:,nocca:] -= lib.einsum('iajb,iajd -> bd', tmp1_ba, y1_ba)
-    c1_b[noccb:,noccb:] -= lib.einsum('iajb,iajd -> bd', tmp1_bb, y1_bb)
-    c1_b[noccb:,noccb:] -= lib.einsum('iajb,iajd -> bd', tmp1_ab, y1_ab)
+    t_build_V = t_build_O = t_contract = 0.0
 
-    #[9]
-    y1_a  = lib.einsum('iajb,icjb -> ac', tmp1_aa, tmp1_bar_aa)
-    y1_a += lib.einsum('iajb,icjb -> ac', tmp1_ab, tmp1_bar_ab)
-    c1_a[:,nocca:] -= lib.einsum('pa,ac -> pc', fock_hfa[:,nocca:], y1_a)
-    y1_b  = lib.einsum('iajb,icjb -> ac', tmp1_bb, tmp1_bar_bb)
-    y1_b += lib.einsum('iajb,icjb -> ac', tmp1_ba, tmp1_bar_ba)
-    c1_b[:,noccb:] -= lib.einsum('pa,ac -> pc', fock_hfb[:,noccb:], y1_b)
+    # (x, y) = spin của cặp chỉ số thứ nhất / thứ hai trong tmp1_xy
+    for x, y, t, tb in (('a', 'a', tmp1_aa, tmp1_bar_aa),
+                        ('b', 'b', tmp1_bb, tmp1_bar_bb),
+                        ('a', 'b', tmp1_ab, tmp1_bar_ab),
+                        ('b', 'a', tmp1_ba, tmp1_bar_ba)):
+        nx, ny = nocc[x], nocc[y]
+        Fx = fock[x]
+        tp = (time.process_time(), time.perf_counter())
+
+        # V: contract chỉ số virtual — ĐẮT (1U). Bản gốc dựng cái này 3 lần.
+        _w = time.perf_counter()
+        V = lib.einsum('ac,icjd -> iajd', Fx[nx:, nx:], tb)
+        t_build_V += time.perf_counter() - _w
+
+        _w = time.perf_counter()
+        c1[y][:ny, :ny] += lib.einsum('iajb,iakb -> jk', t, V)      # [2]
+        c1[x][:nx, :nx] += lib.einsum('iajb,kajb -> ik', t, V)      # [3]
+        c0 -= lib.einsum('ijkl,ijkl->', t, V)                       # [2]
+        t_contract += time.perf_counter() - _w
+
+        # O: contract chỉ số occupied — rẻ (nocc^3 nvir^2). Bản gốc dựng 3 lần.
+        _w = time.perf_counter()
+        O = lib.einsum('ik,kajd -> iajd', Fx[:nx, :nx], tb)
+        t_build_O += time.perf_counter() - _w
+
+        _w = time.perf_counter()
+        c1[y][:ny, :ny] -= lib.einsum('iajb,ialb -> jl', t, O)      # [4]
+        c1[x][nx:, nx:] += lib.einsum('iajb,icjb -> ac', t, O)      # [7]
+        c0 += lib.einsum('ijkl,ijkl->', t, O)                       # [4]
+
+        # [6] + [8] gộp: c1[vv] += <t | O> - <t | V>  =  <t | O - V>
+        O -= V
+        del V
+        c1[y][ny:, ny:] += lib.einsum('iajb,iajd -> bd', t, O)      # [6]+[8]
+        del O
+
+        # [5] va [9]: contract voi chinh tmp1_bar
+        r_o = lib.einsum('iajb,kajb -> ik', t, tb)
+        r_v = lib.einsum('iajb,icjb -> ac', t, tb)
+        acc_o[x] = r_o if acc_o[x] is None else acc_o[x] + r_o
+        acc_v[x] = r_v if acc_v[x] is None else acc_v[x] + r_v
+        t_contract += time.perf_counter() - _w
+
+        if detail:
+            log.timer(f'  second BCH cap ({x}{y})', *tp)
+
+    for s in ('a', 'b'):
+        ns = nocc[s]
+        c1[s][:, :ns] -= lib.einsum('pk,ik -> pi', fock[s][:, :ns], acc_o[s])   # [5]
+        c1[s][:, ns:] -= lib.einsum('pa,ac -> pc', fock[s][:, ns:], acc_v[s])   # [9]
+
+    if detail:
+        log.debug("second BCH memory: %.1f MiB", current_memory()[0])
+        log.debug("second BCH breakdown (wall): dung V %.2f s | dung O %.2f s "
+                  "| contract %.2f s", t_build_V, t_build_O, t_contract)
+
+    log.timer('second BCH', *t0)
 
     return c0, c1_a, c1_b
 
