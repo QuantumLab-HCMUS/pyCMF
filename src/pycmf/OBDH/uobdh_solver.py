@@ -162,6 +162,7 @@ def make_amp(mp):
 
 
 def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
+    
     log = logger.new_logger(mp, verbose=5)
     tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
 
@@ -172,96 +173,45 @@ def first_BCH(mp, fock_hfa, fock_hfb, tmp1_bar, c0):
 
     t0 = (time.process_time(), time.perf_counter())
     from pyscf.lib import current_memory
-    tracemalloc.start()
 
     c1_a = numpy.zeros((nmoa, nmoa), dtype=fock_hfa.dtype)
     c1_b = numpy.zeros((nmob, nmob), dtype=fock_hfb.dtype)
+
+    # Làm phẳng một lần, dùng lại cho mọi block DF
+    Taa = tmp1_bar_aa.reshape(nocca * nvira, nocca * nvira)
+    Tbb = tmp1_bar_bb.reshape(noccb * nvirb, noccb * nvirb)
+    Tab = tmp1_bar_ab.reshape(nocca * nvira, noccb * nvirb)
+    Tba = tmp1_bar_ba.reshape(noccb * nvirb, nocca * nvira)
 
     for qov_a, qov_b, qgv_a, qgv_b, qog_a, qog_b in _iter_bch_blocks(
         mp, mo_coeff[0], nocca, mo_coeff[1], noccb
     ):
         naux_blk = qov_a.shape[0]
 
-        qgv_a_occ = qgv_a.reshape(naux_blk, nmoa, nvira)[:, :nocca, :].reshape(naux_blk, nocca * nvira)
-        qgv_b_occ = qgv_b.reshape(naux_blk, nmob, nvirb)[:, :noccb, :].reshape(naux_blk, noccb * nvirb)
+        # --- Bước đắt duy nhất: 4 dgemm ---
+        M_A = (numpy.dot(qov_a, Taa) + numpy.dot(qov_b, Tba)).reshape(naux_blk, nocca, nvira)
+        M_B = (numpy.dot(qov_b, Tbb) + numpy.dot(qov_a, Tab)).reshape(naux_blk, noccb, nvirb)
 
-        for i in range(nocca):
-            qov_ai = qov_a[:, i * nvira:(i + 1) * nvira]
+        qov_a3 = qov_a.reshape(naux_blk, nocca, nvira)
+        qov_b3 = qov_b.reshape(naux_blk, noccb, nvirb)
+        qgv_a3 = qgv_a.reshape(naux_blk, nmoa, nvira)
+        qgv_b3 = qgv_b.reshape(naux_blk, nmob, nvirb)
+        qog_a3 = qog_a.reshape(naux_blk, nocca, nmoa)
+        qog_b3 = qog_b.reshape(naux_blk, noccb, nmob)
 
-            c1_a[:, 0:nocca] += 2.0 * lib.einsum(
-                "apb,ajb->pj",
-                numpy.dot(qgv_a_occ[:, i * nvira:(i + 1) * nvira].T, qgv_a).reshape(nvira, nmoa, nvira),
-                tmp1_bar_aa[i, :, :, :],
-            )
+        # c1[:, occ]  <- contract qua (Q, b)
+        c1_a[:, 0:nocca] += 2.0 * numpy.tensordot(qgv_a3, M_A, axes=((0, 2), (0, 2)))
+        c1_b[:, 0:noccb] += 2.0 * numpy.tensordot(qgv_b3, M_B, axes=((0, 2), (0, 2)))
 
-            c0 -= lib.einsum(
-                "ajb,ajb->",
-                numpy.dot(qov_ai.T, qov_a).reshape(nvira, nocca, nvira),
-                tmp1_bar_aa[i, :, :, :],
-            )
+        # c1[:, vir]  <- contract qua (Q, j)
+        c1_a[:, nocca:nmoa] -= 2.0 * numpy.tensordot(qog_a3, M_A, axes=((0, 1), (0, 1)))
+        c1_b[:, noccb:nmob] -= 2.0 * numpy.tensordot(qog_b3, M_B, axes=((0, 1), (0, 1)))
 
-            c0 -= lib.einsum(
-                "ajb,ajb->",
-                numpy.dot(qov_ai.T, qov_b).reshape(nvira, noccb, nvirb),
-                tmp1_bar_ab[i, :, :, :],
-            )
+        # c0
+        c0 -= numpy.dot(qov_a3.ravel(), M_A.ravel())
+        c0 -= numpy.dot(qov_b3.ravel(), M_B.ravel())
 
-            c1_b[:, 0:noccb] += 2.0 * lib.einsum(
-                "apb,ajb->pj",
-                numpy.dot(qov_ai.T, qgv_b).reshape(nvira, nmob, nvirb),
-                tmp1_bar_ab[i, :, :, :],
-            )
-
-            c1_a[:, nocca:nmoa] -= 2.0 * lib.einsum(
-                "ajp,ajb->pb",
-                numpy.dot(qov_ai.T, qog_a).reshape(nvira, nocca, nmoa),
-                tmp1_bar_aa[i, :, :, :],
-            )
-
-            c1_b[:, noccb:nmob] -= 2.0 * lib.einsum(
-                "ajp,ajb->pb",
-                numpy.dot(qov_ai.T, qog_b).reshape(nvira, noccb, nmob),
-                tmp1_bar_ab[i, :, :, :],
-            )
-
-        for i in range(noccb):
-            qov_bi = qov_b[:, i * nvirb:(i + 1) * nvirb]
-
-            c1_a[:, 0:nocca] += 2.0 * lib.einsum(
-                "apb,ajb->pj",
-                numpy.dot(qov_bi.T, qgv_a).reshape(nvirb, nmoa, nvira),
-                tmp1_bar_ba[i, :, :, :],
-            )
-
-            c1_b[:, 0:noccb] += 2.0 * lib.einsum(
-                "apb,ajb->pj",
-                numpy.dot(qgv_b_occ[:, i * nvirb:(i + 1) * nvirb].T, qgv_b).reshape(nvirb, nmob, nvirb),
-                tmp1_bar_bb[i, :, :, :],
-            )
-
-            c0 -= lib.einsum(
-                "ajb,ajb->",
-                numpy.dot(qov_bi.T, qov_a).reshape(nvirb, nocca, nvira),
-                tmp1_bar_ba[i, :, :, :],
-            )
-
-            c0 -= lib.einsum(
-                "ajb,ajb->",
-                numpy.dot(qov_bi.T, qov_b).reshape(nvirb, noccb, nvirb),
-                tmp1_bar_bb[i, :, :, :],
-            )
-
-            c1_a[:, nocca:nmoa] -= 2.0 * lib.einsum(
-                "ajp,ajb->pb",
-                numpy.dot(qov_bi.T, qog_a).reshape(nvirb, nocca, nmoa),
-                tmp1_bar_ba[i, :, :, :],
-            )
-
-            c1_b[:, noccb:nmob] -= 2.0 * lib.einsum(
-                "ajp,ajb->pb",
-                numpy.dot(qov_bi.T, qog_b).reshape(nvirb, noccb, nmob),
-                tmp1_bar_bb[i, :, :, :],
-            )
+        del M_A, M_B
 
     log.debug("first BCH DF-block memory: %.1f MiB", current_memory()[0])
     log.timer('first BCH: integral transform', *t0)
