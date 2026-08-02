@@ -14,8 +14,8 @@ H      0.0000  0.0000  1.5201
 
 mol.charge = 0
 mol.spin = 1
-mol.verbose = 4
-mol.basis = '6-31g'
+mol.verbose = 0
+mol.basis = 'ccpvdz'
 mol.build()
 
 # Run UHF once to serve as the reference for all 4 cases
