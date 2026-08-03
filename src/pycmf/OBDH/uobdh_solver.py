@@ -26,59 +26,84 @@ def make_veff(mp):
 
     return veffa, veffb, c0_hf
 
-def _get_aux_blksize(mp):
+def _get_aux_blksize(mp, row_size=0, mem_frac=0.2, min_blk=32):
     with_df = mp.with_df
     naux = int(with_df.get_naoaux())
-    aux_blksize = getattr(mp, "aux_blksize", None)
-
-    if aux_blksize is None:
-        aux_blksize = getattr(with_df, "blockdim", naux)
-
-    aux_blksize = int(aux_blksize)
-    if aux_blksize <= 0:
-        aux_blksize = naux
-
-    return max(1, min(naux, aux_blksize))
-
-
+ 
+    forced = getattr(mp, "aux_blksize", None)
+    if forced is not None and int(forced) > 0:
+        return max(1, min(naux, int(forced)))
+ 
+    cderi = getattr(with_df, "_cderi", None)
+    cderi_incore = isinstance(cderi, numpy.ndarray)
+ 
+    if cderi_incore:
+        nao_pair = 0
+    else:
+        nao = mp.mol.nao_nr()
+        nao_pair = nao * (nao + 1) // 2
+ 
+    mb_per_aux = (nao_pair + row_size) * 8.0 / 1.0e6 * 1.2
+ 
+    from pyscf.lib import current_memory
+    free_mb = getattr(mp, "max_memory", 4000) - current_memory()[0]
+    budget = max(500.0, free_mb * mem_frac)
+ 
+    blk = int(budget / max(mb_per_aux, 1e-9))
+    blk = max(min_blk, min(naux, blk))
+ 
+    logger.new_logger(mp, verbose=5).debug(
+        "aux blksize = %d / %d  (_cderi %s, %.2f MB/aux, total %.0f MB, "
+        "remain %.0f MB)",
+        blk, naux, "incore" if cderi_incore else "on-disk",
+        mb_per_aux, budget, free_mb)
+    return blk
+ 
+ 
 def _iter_ov_blocks(mp, mo_a, nocca, mo_b, noccb):
     with_df = mp.with_df
-
+ 
     mo_a = numpy.asarray(mo_a, order='F')
     mo_b = numpy.asarray(mo_b, order='F')
-
+ 
     nmoa = mo_a.shape[1]
     nmob = mo_b.shape[1]
-
+    nvira, nvirb = nmoa - nocca, nmob - noccb
+ 
     ijslice_ov_a = (0, nocca, nocca, nmoa)
     ijslice_ov_b = (0, noccb, noccb, nmob)
-
-    blksize = _get_aux_blksize(mp)
-
+ 
+    row_size = nocca * nvira + noccb * nvirb
+    blksize = _get_aux_blksize(mp, row_size=row_size)
+ 
     for eri1 in with_df.loop(blksize=blksize):
         qov_a = _ao2mo.nr_e2(eri1, mo_a, ijslice_ov_a, aosym='s2', out=None)
         qov_b = _ao2mo.nr_e2(eri1, mo_b, ijslice_ov_b, aosym='s2', out=None)
         yield qov_a, qov_b
-
-
+ 
+ 
 def _iter_bch_blocks(mp, mo_a, nocca, mo_b, noccb):
     with_df = mp.with_df
-
+ 
     mo_a = numpy.asarray(mo_a, order='F')
     mo_b = numpy.asarray(mo_b, order='F')
-
+ 
     nmoa = mo_a.shape[1]
     nmob = mo_b.shape[1]
-
+    nvira, nvirb = nmoa - nocca, nmob - noccb
+ 
     ijslice_ov_a = (0, nocca, nocca, nmoa)
     ijslice_ov_b = (0, noccb, noccb, nmob)
     ijslice_gv_a = (0, nmoa, nocca, nmoa)
     ijslice_gv_b = (0, nmob, noccb, nmob)
     ijslice_og_a = (0, nocca, 0, nmoa)
     ijslice_og_b = (0, noccb, 0, nmob)
-
-    blksize = _get_aux_blksize(mp)
-
+ 
+    row_size = (nocca * nvira + noccb * nvirb +
+                nmoa * nvira + nmob * nvirb +
+                nocca * nmoa + noccb * nmob)
+    blksize = _get_aux_blksize(mp, row_size=row_size)
+ 
     for eri1 in with_df.loop(blksize=blksize):
         qov_a = _ao2mo.nr_e2(eri1, mo_a, ijslice_ov_a, aosym='s2', out=None)
         qov_b = _ao2mo.nr_e2(eri1, mo_b, ijslice_ov_b, aosym='s2', out=None)
@@ -87,6 +112,7 @@ def _iter_bch_blocks(mp, mo_a, nocca, mo_b, noccb):
         qog_a = _ao2mo.nr_e2(eri1, mo_a, ijslice_og_a, aosym='s2', out=None)
         qog_b = _ao2mo.nr_e2(eri1, mo_b, ijslice_og_b, aosym='s2', out=None)
         yield qov_a, qov_b, qgv_a, qgv_b, qog_a, qog_b
+
 
 
 def make_amp(mp):
@@ -462,6 +488,9 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         e_elec_hfpyscf = mf_emb.energy_elec(dm, h1e, vhf)[0]
         ene_hfpyscf = e_elec_hfpyscf + nuc
 
+        tmp1 = tmp1_bar = None
+        tmp1_aa = tmp1_bb = tmp1_ab = tmp1_ba = None
+        tmp1_bar_aa = tmp1_bar_bb = tmp1_bar_ab = tmp1_bar_ba = None
         tmp1, tmp1_bar = make_amp(mp) 
         tmp1_aa, tmp1_bb, tmp1_ab, tmp1_ba = tmp1
         tmp1_bar_aa, tmp1_bar_bb, tmp1_bar_ab, tmp1_bar_ba = tmp1_bar
