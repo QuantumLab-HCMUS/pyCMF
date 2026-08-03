@@ -90,6 +90,8 @@ def _iter_bch_blocks(mp, mo_a, nocca, mo_b, noccb):
 
 
 def make_amp(mp):
+    from scipy.linalg.blas import dsyrk, dgemm
+
     css = mp.css
     cos = mp.cos
     log = logger.new_logger(mp, verbose=5)
@@ -102,51 +104,54 @@ def make_amp(mp):
 
     t0 = (time.process_time(), time.perf_counter())
     from pyscf.lib import current_memory
-    tracemalloc.start()
 
     n_ov_a = nocca * nvira
     n_ov_b = noccb * nvirb
 
-    dtype = numpy.result_type(mo_coeff[0].dtype, mo_coeff[1].dtype, numpy.float64)
-    ovov_aa = numpy.zeros((n_ov_a, n_ov_a), dtype=dtype)
-    ovov_bb = numpy.zeros((n_ov_b, n_ov_b), dtype=dtype)
-    ovov_ab = numpy.zeros((n_ov_a, n_ov_b), dtype=dtype)
-    ovov_ba = numpy.zeros((n_ov_b, n_ov_a), dtype=dtype)
+    assert mo_coeff[0].dtype == numpy.float64 and mo_coeff[1].dtype == numpy.float64, \
+        "make_amp support only real matrix mo_coeff (float64)"
+
+    ovov_aa = numpy.zeros((n_ov_a, n_ov_a), dtype=numpy.float64, order='F')
+    ovov_bb = numpy.zeros((n_ov_b, n_ov_b), dtype=numpy.float64, order='F')
+    ovov_ab = numpy.zeros((n_ov_a, n_ov_b), dtype=numpy.float64, order='F')
+
 
     for qov_a, qov_b in _iter_ov_blocks(mp, mo_coeff[0], nocca, mo_coeff[1], noccb):
-        ovov_aa += numpy.dot(qov_a.T, qov_a)
-        ovov_bb += numpy.dot(qov_b.T, qov_b)
-        ovov_ab += numpy.dot(qov_a.T, qov_b)
-        ovov_ba += numpy.dot(qov_b.T, qov_a)
+        # qov_*.T la F-contiguous san;  a @ a.T  ==  qov.T @ qov
+        ovov_aa = dsyrk(1.0, qov_a.T, trans=0, beta=1.0,
+                        c=ovov_aa, lower=0, overwrite_c=1)
+        ovov_bb = dsyrk(1.0, qov_b.T, trans=0, beta=1.0,
+                        c=ovov_bb, lower=0, overwrite_c=1)
+        ovov_ab = dgemm(1.0, qov_a.T, qov_b.T, trans_b=1, beta=1.0,
+                        c=ovov_ab, overwrite_c=1)
+
+    ovov_aa += numpy.triu(ovov_aa, 1).T
+    ovov_bb += numpy.triu(ovov_bb, 1).T
 
     log.debug("qov_ab memory: %.1f MiB", current_memory()[0])
     log.timer('making amplitude: integral transform', *t0)
 
-    x_aa = numpy.tile(mo_energy[0][:nocca, None] - mo_energy[0][None, nocca:], (nocca, nvira, 1, 1))
-    x_aa += numpy.einsum('ijkl -> klij', x_aa) - mp.shift
-    tmp1_aa = css * ovov_aa.reshape(nocca, nvira, nocca, nvira) / x_aa
-    del x_aa, ovov_aa
+    d_a = mo_energy[0][:nocca, None] - mo_energy[0][None, nocca:]   # (nocca, nvira)
+    d_b = mo_energy[1][:noccb, None] - mo_energy[1][None, noccb:]   # (noccb, nvirb)
+    shift = mp.shift
 
-    x_ab = numpy.einsum(
-        'ijkl -> klij',
-        numpy.tile(mo_energy[0][:nocca, None] - mo_energy[0][None, nocca:], (noccb, nvirb, 1, 1))
-    )
-    x_ab += numpy.tile(mo_energy[1][:noccb, None] - mo_energy[1][None, noccb:], (nocca, nvira, 1, 1)) - mp.shift
-    tmp1_ab = cos * ovov_ab.reshape(nocca, nvira, noccb, nvirb) / x_ab
-    del x_ab, ovov_ab
+    ovov_aa = ovov_aa.T
+    ovov_bb = ovov_bb.T
 
-    x_ba = numpy.einsum(
-        'ijkl -> klij',
-        numpy.tile(mo_energy[1][:noccb, None] - mo_energy[1][None, noccb:], (nocca, nvira, 1, 1))
-    )
-    x_ba += numpy.tile(mo_energy[0][:nocca, None] - mo_energy[0][None, nocca:], (noccb, nvirb, 1, 1)) - mp.shift
-    tmp1_ba = cos * ovov_ba.reshape(noccb, nvirb, nocca, nvira) / x_ba
-    del x_ba, ovov_ba
+    tmp1_aa = ovov_aa.reshape(nocca, nvira, nocca, nvira)
+    tmp1_aa *= css
+    tmp1_aa /= (d_a[:, :, None, None] + d_a[None, None, :, :] - shift)
 
-    x_bb = numpy.tile(mo_energy[1][:noccb, None] - mo_energy[1][None, noccb:], (noccb, nvirb, 1, 1))
-    x_bb += numpy.einsum('ijkl -> klij', x_bb) - mp.shift
-    tmp1_bb = css * ovov_bb.reshape(noccb, nvirb, noccb, nvirb) / x_bb
-    del x_bb, ovov_bb
+    tmp1_bb = ovov_bb.reshape(noccb, nvirb, noccb, nvirb)
+    tmp1_bb *= css
+    tmp1_bb /= (d_b[:, :, None, None] + d_b[None, None, :, :] - shift)
+
+    tmp1_ab = numpy.ascontiguousarray(ovov_ab).reshape(nocca, nvira, noccb, nvirb)
+    del ovov_ab
+    tmp1_ab *= cos
+    tmp1_ab /= (d_a[:, :, None, None] + d_b[None, None, :, :] - shift)
+
+    tmp1_ba = numpy.ascontiguousarray(tmp1_ab.transpose(2, 3, 0, 1))
 
     tmp1_bar_aa = tmp1_aa - numpy.transpose(tmp1_aa, (0, 3, 2, 1))
     tmp1_bar_bb = tmp1_bb - numpy.transpose(tmp1_bb, (0, 3, 2, 1))
