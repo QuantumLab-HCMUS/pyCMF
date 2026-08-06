@@ -50,7 +50,7 @@ mf = stabilize_scf(mf, max_macro_cycles=10, verbose=True)
 # CASE 2: EMBEDDED OBDH (HYBRID) + CONCENTRIC LOCALIZATION (CL)
 # ==============================================================================
 print("\n" + ">"*10 + " CASE 2: EMBEDDED OBDH + CL TRUNCATION " + "<"*10)
-mppp_obdh_emb = OBDH_CL(mf)
+mppp_obdh_emb = OBMP2_CL(mf)
 mppp_obdh_emb.alphaa = (0.53, 0.39)
 mppp_obdh_emb.thresh = 1e-08
 mppp_obdh_emb.second_order = True
