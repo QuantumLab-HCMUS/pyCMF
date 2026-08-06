@@ -110,7 +110,7 @@ def build_embedding_potential(mol, xc_code, S, mu, mf_full, gamma_B_tuple, gamma
 
 def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, num_active_orbs, atom_indices_A, use_cl=False, cl_n_shells=1, cl_mu_threshold=1e5):
     print(f"   [Embedded UOBMP2] Initializing UHF with Embedding Potential...")
-    mol_emb = mol.copy()
+    mol_emb = mol.copy()    #If the basis between A and B is changed, this line is not available
     na, nb = num_active_orbs
     mol_emb.nelectron = na + nb
     mol_emb.spin = na - nb
@@ -201,33 +201,12 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     if is_hybrid:
         return e_tot_or_corr, e_dft, gamma_uobmp2
     else:
-        # PURE OBMP2 Energy logic
-        gamma_uobmp2_a, gamma_uobmp2_b = gamma_uobmp2
-        mf_tmp = dft.UKS(mol).density_fit()
-        mf_tmp.xc = xc
-        mf_tmp.verbose = mol.verbose
-        mf_tmp.with_df = mp.with_df
-        
-        # 1e- and 2e- energy from UOBMP2 density but isolated nuclei core
-        e_elec_meanfield, _ = mf_tmp.energy_elec([gamma_uobmp2_a, gamma_uobmp2_b], h1e=h_core_A_iso)
-
-        coords = mol.atom_coords()
-        charges = mol.atom_charges()
-        e_nuc_A = 0.0
-        for i in range(len(atom_indices_A)):
-            for j in range(i + 1, len(atom_indices_A)):
-                at_i = atom_indices_A[i]
-                at_j = atom_indices_A[j]
-                dist = np.linalg.norm(coords[at_i] - coords[at_j])
-                e_nuc_A += (charges[at_i] * charges[at_j]) / dist
-
-        e_wf_A_internal = e_elec_meanfield + e_nuc_A + e_tot_or_corr # e_tot_or_corr là e_corr
-        return e_wf_A_internal, None, gamma_uobmp2
+        return e_tot_or_corr, None, gamma_uobmp2
 
 def embed_kernel(mp):
     mol = mp.mol
     alphaa = mp.alphaa
-    xc_code = f"{alphaa[0]}*HF + {1-alphaa[0]}*B88, {1-alphaa[1]}*LYP"
+    xc_code = getattr(mp, 'xc_env', None) or f"{alphaa[0]}*HF + {1-alphaa[0]}*B88, {1-alphaa[1]}*LYP"
     S = mp._scf.get_ovlp()
     mu = mp.mu
     is_hybrid = getattr(mp, 'is_hybrid', True)
@@ -256,10 +235,9 @@ def embed_kernel(mp):
     print("\n--- Constructing Potentials ---")
     h_core_A_iso = get_subsystem_hcore(mol, atom_indices_A)
     
-    # Riêng OBMP2 cần in và tính E_DFT[A] Isolated làm baseline
-    if not is_hybrid:
-        e_dft_A_iso = calculate_dft_energy_isolated(mol, xc_code, gamma_A, h_core_A_iso, atom_indices_A)
-        print(f"E_DFT[A] (Isolated Total): {e_dft_A_iso:.8f} Eh")
+    # if not is_hybrid:
+    #     e_dft_A_iso = calculate_dft_energy_isolated(mol, xc_code, gamma_A, h_core_A_iso, atom_indices_A)
+    #     print(f"E_DFT[A] (Isolated Total): {e_dft_A_iso:.8f} Eh")
 
     v_emb, P_B = build_embedding_potential(mol, xc_code, S, mu, ks_full, gamma_B, gamma_A)
 
@@ -285,22 +263,37 @@ def embed_kernel(mp):
         print(f"Orthogonality Correction        : {e_ortho:.8f}")
 
     else:
-        # --- Logic Final Energy của OBMP2 ---
-        e_baseline = ks_full.e_tot - e_dft_A_iso
-        v_emb_np_a = v_emb[0] - mp.mu * P_B[0]
-        v_emb_np_b = v_emb[1] - mp.mu * P_B[1]
+        # --- Logic Final Energy OBMP2 ---
+        e_corr_A = e_wf_A_internal   # giá trị trả về ở trên là e_corr
 
-        e_relax = np.einsum('ij,ji', gamma_uobmp2_a - gamma_A[0], v_emb_np_a) + \
-                  np.einsum('ij,ji', gamma_uobmp2_b - gamma_A[1], v_emb_np_b)
-        
-        e_ortho = mp.mu * (np.einsum('ij,ji', gamma_uobmp2_a, P_B[0]) + np.einsum('ij,ji', gamma_uobmp2_b, P_B[1]))
-        
-        e_final = e_wf_A_internal + e_baseline + e_relax + e_ortho
+        gam_A = [gamma_uobmp2_a, gamma_uobmp2_b]
+        gamma_relax = (gamma_uobmp2[0] + gamma_B[0], gamma_uobmp2[1] + gamma_B[1])
+        e_nuc = mol.energy_nuc()
+
+        hf_A = scf.UHF(mol).density_fit()
+        hf_A.verbose = mol.verbose
+        hf_A.with_df = mp.with_df
+        e_hf_A = hf_A.energy_elec(gam_A, h1e=h_core_full)[0] + e_nuc
+
+        ks_A = dft.UKS(mol).density_fit()
+        ks_A.xc = xc_code
+        ks_A.verbose = mol.verbose
+        ks_A.with_df = mp.with_df
+        e_dft_A_relax = ks_A.energy_elec(gam_A, h1e=h_core_full)[0] + e_nuc
+
+        e_dft_full_relax = ks_full.energy_tot(dm=gamma_relax)
+
+        e_wf_A_internal = e_hf_A + e_corr_A
+        e_baseline      = e_dft_full_relax - e_dft_A_relax
+        e_ortho         = mp.mu * (np.einsum('ij,ji', gamma_uobmp2_a, P_B[0]) +
+                                np.einsum('ij,ji', gamma_uobmp2_b, P_B[1]))
+        e_final = e_wf_A_internal + e_baseline + e_ortho
 
         print("-" * 60)
-        print(f"E_WF[A] (Internal, Recalculated): {e_wf_A_internal:.8f}")
-        print(f"Baseline (Full - Iso)           : {e_baseline:.8f}")
-        print(f"Relaxation Correction           : {e_relax:.8f}")
+        print(f"E_HF[A] (relaxed density)       : {e_hf_A:.8f}")
+        print(f"E_corr (OBMP2, A)               : {e_corr_A:.8f}")
+        print(f"E_WF[A] = E_HF[A] + E_corr      : {e_wf_A_internal:.8f}")
+        print(f"Baseline (Full - A, relaxed)    : {e_baseline:.8f}")
         print(f"Orthogonality Correction        : {e_ortho:.8f}")
 
     print("-" * 60)

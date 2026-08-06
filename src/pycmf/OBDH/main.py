@@ -157,6 +157,7 @@ def get_nmo(mp):
 class BaseEmbedOBMP2(DFOBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
+        self.xc_env = None
         self.use_embed = False  
         self.use_cl = False     
         self.active_atoms = []
