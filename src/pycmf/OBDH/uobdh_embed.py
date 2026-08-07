@@ -176,7 +176,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
                 idx_vir_eff = (occ_s == 0) & (eps_s < cl_mu_threshold)
                 C_vir_eff = C_s[:, idx_vir_eff]
 
-                C_vir_CL = concentric_localization(C_vir_eff, S_mat, F_s, active_aos, n_shells=cl_n_shells, verbose=True)
+                C_vir_CL = concentric_localization(C_vir_eff, S_mat, F_s, active_aos, n_shells=cl_n_shells, verbose=True, n_span=n_span_common)
 
                 F_vir = C_vir_CL.T.conj() @ F_s @ C_vir_CL
                 evals_vir, evecs_vir = la.eigh(F_vir)
@@ -194,11 +194,11 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
             mf_emb.mo_energy = (new_mo_energy[0], new_mo_energy[1])
             mf_emb.mo_occ = (new_mo_occ[0], new_mo_occ[1])
 
-            nmo_new = new_mo_coeff[0].shape[1]
+            nmo_a, nmo_b = new_mo_coeff[0].shape[1], new_mo_coeff[1].shape[1]
             mp.mo_coeff = mf_emb.mo_coeff
             mp.mo_occ = mf_emb.mo_occ
             mp.mo_energy = mf_emb.mo_energy
-            mp._nmo = (nmo_new, nmo_new)
+            mp._nmo = (nmo_a, nmo_b)
             mp.nocc = (np.count_nonzero(mf_emb.mo_occ[0]), np.count_nonzero(mf_emb.mo_occ[1]))
             print(f"   [Embedded UOBMP2] CL truncation done. NMO alpha={mf_emb.mo_coeff[0].shape[1]}, beta={mf_emb.mo_coeff[1].shape[1]}")
         except ImportError:

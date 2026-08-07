@@ -2,7 +2,7 @@ import numpy as np
 import scipy.linalg as la
 
 
-def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, verbose=True):
+def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, verbose=True, n_span=None):
     """
     Thu gọn không gian ảo bằng Concentric Localization (CL).
 
@@ -54,6 +54,11 @@ def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, v
     n_sig = len(Sigma)
     span_mask = np.zeros(n_vir, dtype=bool)
     span_mask[:n_sig] = Sigma > tol
+
+    if n_span is not None:          # restrict shape of 0th shell
+        k = min(n_span, n_vir)
+        span_mask[:] = False
+        span_mask[:k] = True
 
     n_span_0 = int(span_mask.sum())
     n_ker_0 = n_vir - n_span_0
