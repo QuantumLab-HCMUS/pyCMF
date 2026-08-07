@@ -122,6 +122,9 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     original_get_veff = mf_emb.get_veff
 
     def get_veff_emb(mol, dm, dm_last=0, vhf_last=0):
+        if dm is None:
+            dm = mf_emb.make_rdm1()
+        dm = np.asarray(dm)      
         veff = original_get_veff(mol, dm, dm_last, vhf_last)
         return np.array([veff[0] + v_emb[0], veff[1] + v_emb[1]])
 
@@ -148,6 +151,13 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
 
             S_mat = mf_emb.get_ovlp()
             F_mat = mf_emb.get_fock()
+
+            nvir_eff = []
+            for s_ in [0, 1]:
+                occ_s = mf_emb.mo_occ[s_]; eps_s = mf_emb.mo_energy[s_]
+                nvir_eff.append(int(((occ_s == 0) & (eps_s < cl_mu_threshold)).sum()))
+            n_span_common = min(len(active_aos), min(nvir_eff))
+            print(f"   [CL] n_vir_eff (a,b) = {nvir_eff}, shell size for both spin = {n_span_common}")
 
             new_mo_coeff = []
             new_mo_energy = []
