@@ -122,6 +122,9 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     original_get_veff = mf_emb.get_veff
 
     def get_veff_emb(mol, dm, dm_last=0, vhf_last=0):
+        if dm is None:
+            dm = mf_emb.make_rdm1()
+        dm = np.asarray(dm)      
         veff = original_get_veff(mol, dm, dm_last, vhf_last)
         return np.array([veff[0] + v_emb[0], veff[1] + v_emb[1]])
 
@@ -149,6 +152,13 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
             S_mat = mf_emb.get_ovlp()
             F_mat = mf_emb.get_fock()
 
+            nvir_eff = []
+            for s_ in [0, 1]:
+                occ_s = mf_emb.mo_occ[s_]; eps_s = mf_emb.mo_energy[s_]
+                nvir_eff.append(int(((occ_s == 0) & (eps_s < cl_mu_threshold)).sum()))
+            n_span_common = min(len(active_aos), min(nvir_eff))
+            print(f"   [CL] n_vir_eff (a,b) = {nvir_eff}, shell size for both spin = {n_span_common}")
+
             new_mo_coeff = []
             new_mo_energy = []
             new_mo_occ = []
@@ -166,7 +176,7 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
                 idx_vir_eff = (occ_s == 0) & (eps_s < cl_mu_threshold)
                 C_vir_eff = C_s[:, idx_vir_eff]
 
-                C_vir_CL = concentric_localization(C_vir_eff, S_mat, F_s, active_aos, n_shells=cl_n_shells, verbose=True)
+                C_vir_CL = concentric_localization(C_vir_eff, S_mat, F_s, active_aos, n_shells=cl_n_shells, verbose=True, n_span=n_span_common)
 
                 F_vir = C_vir_CL.T.conj() @ F_s @ C_vir_CL
                 evals_vir, evecs_vir = la.eigh(F_vir)
@@ -184,11 +194,11 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
             mf_emb.mo_energy = (new_mo_energy[0], new_mo_energy[1])
             mf_emb.mo_occ = (new_mo_occ[0], new_mo_occ[1])
 
-            nmo_new = new_mo_coeff[0].shape[1]
+            nmo_a, nmo_b = new_mo_coeff[0].shape[1], new_mo_coeff[1].shape[1]
             mp.mo_coeff = mf_emb.mo_coeff
             mp.mo_occ = mf_emb.mo_occ
             mp.mo_energy = mf_emb.mo_energy
-            mp._nmo = (nmo_new, nmo_new)
+            mp._nmo = (nmo_a, nmo_b)
             mp.nocc = (np.count_nonzero(mf_emb.mo_occ[0]), np.count_nonzero(mf_emb.mo_occ[1]))
             print(f"   [Embedded UOBMP2] CL truncation done. NMO alpha={mf_emb.mo_coeff[0].shape[1]}, beta={mf_emb.mo_coeff[1].shape[1]}")
         except ImportError:
@@ -226,7 +236,12 @@ def embed_kernel(mp):
 
     print("\n --- Partitioning ---")
     C_A_a, C_B_a = spade_partition(mol, S, C_occ_a, atom_indices_A, True, "Alpha")
-    C_A_b, C_B_b = spade_partition(mol, S, C_occ_b, atom_indices_A, False, "Beta")
+    C_A_b, C_B_b = spade_partition(mol, S, C_occ_b, atom_indices_A, True, "Beta")
+    na_act, nb_act = C_A_a.shape[1], C_A_b.shape[1]
+    n_unpaired_A = na_act - nb_act
+    if n_unpaired_A < 0 or n_unpaired_A > mol.spin:
+        print(f"   [WARNING] SPADE spin không nhất quán: na_act={na_act}, "
+              f"nb_act={nb_act} => spin(A)={n_unpaired_A}, mol.spin={mol.spin}")
 
     na_act, nb_act = C_A_a.shape[1], C_A_b.shape[1]
     gamma_A = (build_density_matrix(C_A_a), build_density_matrix(C_A_b))
