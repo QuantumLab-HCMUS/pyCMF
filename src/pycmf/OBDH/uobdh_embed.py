@@ -236,7 +236,12 @@ def embed_kernel(mp):
 
     print("\n --- Partitioning ---")
     C_A_a, C_B_a = spade_partition(mol, S, C_occ_a, atom_indices_A, True, "Alpha")
-    C_A_b, C_B_b = spade_partition(mol, S, C_occ_b, atom_indices_A, False, "Beta")
+    C_A_b, C_B_b = spade_partition(mol, S, C_occ_b, atom_indices_A, True, "Beta")
+    na_act, nb_act = C_A_a.shape[1], C_A_b.shape[1]
+    n_unpaired_A = na_act - nb_act
+    if n_unpaired_A < 0 or n_unpaired_A > mol.spin:
+        print(f"   [WARNING] SPADE spin không nhất quán: na_act={na_act}, "
+              f"nb_act={nb_act} => spin(A)={n_unpaired_A}, mol.spin={mol.spin}")
 
     na_act, nb_act = C_A_a.shape[1], C_A_b.shape[1]
     gamma_A = (build_density_matrix(C_A_a), build_density_matrix(C_A_b))

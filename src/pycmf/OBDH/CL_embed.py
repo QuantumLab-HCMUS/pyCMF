@@ -90,7 +90,7 @@ def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, v
 
     for i in range(n_extra):
         if C_ker.shape[1] == 0:
-            break  # kernel cạn kiệt
+            break  # out of kernel
 
         Coupling = C_n.T.conj() @ F @ C_ker  # shape: (n_prev_span, n_ker)
 
@@ -101,6 +101,11 @@ def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, v
 
         span_mask_n = np.zeros(n_ker_cur, dtype=bool)
         span_mask_n[:n_sig_n] = Sigma_n > tol
+
+        if n_span is not None:      # auto clamp when nearly out of kernel
+            k = min(n_span, n_ker_cur)
+            span_mask_n[:] = False
+            span_mask_n[:k] = True
 
         n_span_n = int(span_mask_n.sum())
         n_ker_n = n_ker_cur - n_span_n
