@@ -49,6 +49,9 @@ obmp.kernel()
 
 E_singlet = obmp.ene_tot
 
+
+
+
 # Write molden AFTER OBMP2 (restricted: 1 set of MOs, occ = 0/2)
 stem       = f"{MOLE}_{ARRANGE}_{BASIS_NAME}_{LABEL}"
 molden_rhf = os.path.join(folder, f"{stem}.molden")
