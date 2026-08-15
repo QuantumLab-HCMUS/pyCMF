@@ -57,7 +57,7 @@ mppp_obdh_emb.second_order = True
 mppp_obdh_emb.use_embed = True   # Enable Embedding
 mppp_obdh_emb.active_atoms = [0] # Set active system to Oxygen atom
 mppp_obdh_emb.mu = 1e6
-mppp_obdh_emb.use_cl = False      # Enable CL Truncation
+mppp_obdh_emb.use_cl = True      # Enable CL Truncation
 mppp_obdh_emb.n_shells = 1
 
 start2 = time.time()
