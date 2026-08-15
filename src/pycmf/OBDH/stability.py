@@ -45,6 +45,7 @@ def stabilize_scf(mf, max_macro_cycles=5, verbose=True):
             mf.mo_energy = mf_newton.mo_energy
             mf.mo_occ    = mf_newton.mo_occ
             mf.e_tot = mf_newton.e_tot
+            mf.converged = mf_newton.converged
         else:
             if verbose:
                 print("   -> [Congratulation~] The self-consistent field (SCF) solution successfully.")
