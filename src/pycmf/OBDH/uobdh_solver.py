@@ -532,7 +532,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
             F_eff_mo_b = fock_udftobmp2_b 
         else:
             e_corr = (ene_uobmp2 - ene_hfpyscf)
-            e_tot = e_corr # Lấy e_corr làm tiêu chí hội tụ cho loop
+            e_tot = ene_uobmp2 
             fock_udftobmp2_a = (fock_uobmp2_a - fock_hf_pyscf_a) 
             fock_udftobmp2_b = (fock_uobmp2_b - fock_hf_pyscf_b)
             
@@ -542,6 +542,10 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
             # For Pure OBMP2, DIIS Fock = HF + UOBMP2 - HF = UOBMP2
             F_eff_mo_a = fock_hf_pyscf_a + fock_udftobmp2_a 
             F_eff_mo_b = fock_hf_pyscf_b + fock_udftobmp2_b 
+
+        if it + 1 >= min_iter and de <= mp.thresh:
+            conv = True
+            break
 
         # DIIS
         C_a = mf_emb.mo_coeff[0]
@@ -639,10 +643,6 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
 
         mp.mo_coeff  = mf_emb.mo_coeff
         mp.mo_energy = mf_emb.mo_energy
-
-        if it + 1 >= min_iter and de <= mp.thresh:
-            conv = True
-            break
     
         dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
         dm = lib.tag_array(dm, mo_coeff=mf_emb.mo_coeff, mo_occ=mf_emb.mo_occ)
