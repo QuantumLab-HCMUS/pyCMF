@@ -222,7 +222,7 @@ class BaseEmbedOBMP2(DFOBMP2):
             mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
             mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
             
-            e_returned, e_dft, self._gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
+            e_tot, e_dft, self._gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
             
             # if self.is_hybrid:
             #     e_tot = e_returned 
