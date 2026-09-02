@@ -12,4 +12,5 @@ from .main import OBMP2_CL
 # Import các hàm tiện ích xử lý CL để người dùng gọi trực tiếp nếu cần
 from .CL_embed import concentric_localization, cl_shell_analysis
 from .stability import stabilize_scf
-__all__ = ['DFTOBMP2', 'OBDH_CL', 'OBMP2_CL','concentric_localization', 'cl_shell_analysis', 'stabilize_scf']
+from .obdh_rdm1 import attach
+__all__ = ['DFTOBMP2', 'OBDH_CL', 'OBMP2_CL','concentric_localization', 'cl_shell_analysis', 'stabilize_scf', 'attach']
