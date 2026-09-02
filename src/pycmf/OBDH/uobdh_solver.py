@@ -536,8 +536,8 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
             fock_udftobmp2_a = (fock_uobmp2_a - fock_hf_pyscf_a) 
             fock_udftobmp2_b = (fock_uobmp2_b - fock_hf_pyscf_b)
             
-            de = abs(e_corr - ene_old) if ene_old is not None else numpy.inf
-            ene_old = e_corr
+            de = abs(e_tot - ene_old) if ene_old is not None else numpy.inf
+            ene_old = e_tot
 
             # For Pure OBMP2, DIIS Fock = HF + UOBMP2 - HF = UOBMP2
             F_eff_mo_a = fock_hf_pyscf_a + fock_udftobmp2_a 
