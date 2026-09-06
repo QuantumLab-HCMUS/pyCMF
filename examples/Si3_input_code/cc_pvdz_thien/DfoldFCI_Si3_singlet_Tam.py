@@ -12,17 +12,23 @@ print("lib.param.MAX_MEMORY = ", lib.param.MAX_MEMORY)
 print("available memory = ", psutil.virtual_memory().available / 1024**3)
 
 
+#BASIS    = "cc-pVDZ"
+#BASIS    = "sto6g"
 BASIS    = "cc-pVTZ"
 
 # Basis: aug-cc-pV(T+d)Z for Si singlet
 #si_basis = gto.basis.parse(bse.get_basis(f"{BASIS}", elements=["Si"], fmt="nwchem"))
 
 # Active space for Si3 singlet
-nocc_inact    = [20, 20]                 # inactive occupied (frozen) pairs
-num_particles = [1, 1]                   # active electrons (alpha, beta)
+#nocc_inact    = [20, 20]                 # inactive occupied (frozen) pairs
+#num_particles = [1, 1]                   # active electrons (alpha, beta)
+nocc_inact    = [15, 15]                 # Đóng băng 15 orbital đầu tiên (30 electron core)
+num_particles = [6, 6]
 nalpha, nbeta = num_particles
 
-caslist_a    = [21, 31]   # 1-based
+#caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 29]   # 1-based
+#caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 34]   # 1-based
+caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 32]   # 1-based
 caslist_b    = caslist_a
 caslist      = [caslist_a, caslist_b]
 active_space = (np.array(caslist_a) - 1).tolist()                 # 0-based
@@ -31,84 +37,88 @@ num_orbitals = len(active_space)
 norb         = num_orbitals
 
 # Build molecule
-singlet_atoms = [["Si",(0.0, 1.438106,-0.548486)],
-                 ["Si",(0.0,-1.438106,-0.548486)],
-                 ["Si",(0.0, 0.0,      1.096973)]]
+R = 2.185333880
+angle = 70.0
+for angle in [160, 170]:    
 
-mol = gto.Mole()
-mol.atom    = singlet_atoms
-#mol.basis   = {"Si": si_basis}
-mol.basis   = BASIS
-mol.unit    = 'A'
-mol.charge  = 0
-mol.spin    = 0            # 2S = 0 -> singlet (closed shell)
-mol.verbose = 4
-# mol.max_memory = 10000 # Không cần vì phía trên đã set lib.param.MAX_MEMORY = 10240
-mol.build()
+    print(f"angle = {angle} degrees")
+    singlet_atoms= [
+            ['Si', (0.0, 0.0, 0.0)],
+            ['Si', (0.0, -R * np.sin(angle * np.pi / 180.0), R * np.cos(angle * np.pi / 180.0))],
+            ['Si', (0.0, 0.0, R)]
+        ]
 
-print(f'active_space: {caslist_a}')
+    mol = gto.Mole()
+    mol.atom    = singlet_atoms
+    #mol.basis   = {"Si": si_basis}
+    mol.basis   = BASIS
+    mol.unit    = 'A'
+    mol.charge  = 0
+    mol.spin    = 0            # 2S = 0 -> singlet (closed shell)
+    mol.verbose = 5
+    # mol.max_memory = 10000 # Không cần vì phía trên đã set lib.param.MAX_MEMORY = 10240
+    mol.build()
 
-# RHF (restricted)
-myrhf = pyscf.scf.RHF(mol)
-e_rhf = myrhf.kernel()
+    print(f'active_space: {caslist_a}')
 
-# CASCI(12,12)
-mycas = mcscf.CASCI(myrhf, ncas=num_orbitals, nelecas=sum(num_particles))
-mo = mcscf.sort_mo(casscf=mycas, mo_coeff=myrhf.mo_coeff, caslst=caslist_a, base=1)
-e_casci, _, _, _, _ = mycas.kernel(mo_coeff=mo)
+    # RHF (restricted)
+    myrhf = pyscf.scf.RHF(mol)
+    e_rhf = myrhf.kernel()
 
-hf_mo_sorted = mcscf.sort_mo(mycas, myrhf.mo_coeff, caslist_a)
+    # CASCI(12,12)
+    mycas = mcscf.CASCI(myrhf, ncas=num_orbitals, nelecas=sum(num_particles))
+    mo = mcscf.sort_mo(casscf=mycas, mo_coeff=myrhf.mo_coeff, caslst=caslist_a, base=1)
+    e_casci, _, _, _, _ = mycas.kernel(mo_coeff=mo)
 
-hcore, nuclear_repulsion_energy = mycas.get_h1cas(hf_mo_sorted)
-eri = pyscf.ao2mo.restore(1, mycas.get_h2cas(hf_mo_sorted), num_orbitals)
+    hf_mo_sorted = mcscf.sort_mo(mycas, myrhf.mo_coeff, caslist_a)
 
-# OBMP2 (full space)
-robmp = OBMP2(myrhf)
-robmp.niter = 1
-robmp.second_order = True
-robmp.kernel()
-e_obmp2 = getattr(robmp, "ene_tot", None)
-print(f"E(OBMP2)                 : {e_obmp2:.13f}")
+    hcore, nuclear_repulsion_energy = mycas.get_h1cas(hf_mo_sorted)
+    eri = pyscf.ao2mo.restore(1, mycas.get_h2cas(hf_mo_sorted), num_orbitals)
 
-exit()
+    # OBMP2 (full space)
+    robmp = OBMP2(myrhf)
+    robmp.second_order = True
+    robmp.kernel()
+    e_obmp2 = getattr(robmp, "ene_tot", None)
+    print(f"E(OBMP2)                 : {e_obmp2:.13f}")
+    #exit()
+    # OBMP2 DOWNFOLDING
+    omp2_mo_sorted = mcscf.sort_mo(mycas, robmp.mo_coeff, caslist_a)
 
-# OBMP2 DOWNFOLDING
-omp2_mo_sorted = mcscf.sort_mo(mycas, robmp.mo_coeff, caslist_a)
+    robact = OBMP2_downfold(myrhf, nact=nact[0], nocc_act=num_particles[0])
+    robact.mo_coeff     = omp2_mo_sorted
+    robact.mo_energy    = robmp.mo_energy
+    robact.c0_tot       = getattr(robmp, "c0_tot", None)
+    robact.ene_tot      = getattr(robmp, "ene_tot", None)
+    robact.c1           = getattr(robmp, "c1", None)
+    robact.second_order = True
 
-robact = OBMP2_downfold(myrhf, nact=nact[0], nocc_act=num_particles[0])
-robact.mo_coeff     = omp2_mo_sorted
-robact.mo_energy    = robmp.mo_energy
-robact.c0_tot       = getattr(robmp, "c0_tot", None)
-robact.ene_tot      = getattr(robmp, "ene_tot", None)
-robact.c1           = getattr(robmp, "c1", None)
-robact.second_order = True
+    # re-sort tmp1/tmp1_bar and fock_hf to the sorted MO ordering
+    fock_temp       = mcscf.sort_mo(mycas, robmp.fock_hf, caslist_a)
+    robact.fock_hf  = mcscf.sort_mo(mycas, fock_temp.T, caslist_a)
+    robact.tmp1     = robact.sort_tmp1(robmp.tmp1, caslist_a)
+    robact.tmp1_bar = robact.sort_tmp1(robmp.tmp1_bar, caslist_a)
 
-# re-sort tmp1/tmp1_bar and fock_hf to the sorted MO ordering
-fock_temp       = mcscf.sort_mo(mycas, robmp.fock_hf, caslist_a)
-robact.fock_hf  = mcscf.sort_mo(mycas, fock_temp.T, caslist_a)
-robact.tmp1     = robact.sort_tmp1(robmp.tmp1, caslist_a)
-robact.tmp1_bar = robact.sort_tmp1(robmp.tmp1_bar, caslist_a)
+    robact.kernel()
 
-robact.kernel()
+    h1        = robact.h1mo_act_eff      # effective 1-body in active space
+    h2        = robact.h2mo_act          # 2-body in active space
+    ene_inact = robact.ene_inact         # inactive (downfolded) energy
 
-h1        = robact.h1mo_act_eff      # effective 1-body in active space
-h2        = robact.h2mo_act          # 2-body in active space
-ene_inact = robact.ene_inact         # inactive (downfolded) energy
+    # DOWNFOLDING FCI
+    cis = direct_spin1.FCI()
+    cis.nroots = 1
+    e_dfold_fci, _ = cis.kernel(h1, h2, norb, (nalpha, nbeta))
 
-# DOWNFOLDING FCI
-cis = direct_spin1.FCI()
-cis.nroots = 1
-e_dfold_fci, _ = cis.kernel(h1, h2, norb, (nalpha, nbeta))
-
-E_singlet = e_dfold_fci + ene_inact
-
-print("\n" + "=" * 64)
-print(f"basis                    : {BASIS}")
-print(f"active space             : ({sum(num_particles)}e, {norb}o)  orbitals {caslist_a}")
-print(f"E(RHF)                   : {e_rhf:.13f}")
-print(f"E(CASCI)                 : {e_casci:.13f}")
-print(f"E(OBMP2)                 : {e_obmp2:.13f}")
-print(f"E_inactive (downfold)    : {ene_inact:.13f}")
-print(f"E_FCI(active)            : {e_dfold_fci:.13f}")
-print(f"E(Si3 SINGLET, DfoldFCI) : {E_singlet:.13f} Ha")
-print("=" * 64)
+    E_singlet = e_dfold_fci + ene_inact
+    print("\n" + "=" * 64)
+    print(f"Góc = {angle} độ")
+    print(f"basis                    : {BASIS}")
+    print(f"active space             : ({sum(num_particles)}e, {norb}o)  orbitals {caslist_a}")
+    print(f"E(RHF)                   : {e_rhf:.13f}")
+    print(f"E(CASCI)                 : {e_casci:.13f}")
+    print(f"E(OBMP2)                 : {e_obmp2:.13f}")
+    print(f"E_inactive (downfold)    : {ene_inact:.13f}")
+    print(f"E_FCI(active)            : {e_dfold_fci:.13f}")
+    print(f"E(Si3 SINGLET, DfoldFCI) : {E_singlet:.13f} Ha")
+    print("=" * 64)
