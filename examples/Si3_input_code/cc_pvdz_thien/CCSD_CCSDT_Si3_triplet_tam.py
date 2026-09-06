@@ -12,50 +12,53 @@ BASIS    = "cc-pVTZ"
 
 # --- TRIPLET geometry: equilateral triangle, side = 2.307 A ---------------
 			
-SIDE = 2.307
-R    = SIDE / np.sqrt(3.0)                       # circumradius
+#SIDE = 2.307
+#R    = SIDE / np.sqrt(3.0)                       # circumradius
 # triplet_atoms = [["Si",(R*np.cos(a), R*np.sin(a), 0.0)]
 #                 for a in np.radians([90.0, 210.0, 330.0])]
+R = 2.295097609
+angle = 60.0 
+for angle in range(170, 181, 10):    
+    print(f"angle = {angle} degrees")
+    triplet_atoms = [
+            ['Si', (0.0, 0.0, 0.0)],
+            ['Si', (0.0, -R * np.sin(angle * np.pi / 180.0), R * np.cos(angle * np.pi / 180.0))],
+            ['Si', (0.0, 0.0, R)]
+        ]
 
-triplet_atoms = [
-			  ['Si', (0.0, 1.325075, 0.0)],
-			  ['Si', (1.147549, -0.662538, 0.0)],
-			  ['Si', (-1.147549, -0.662538, 0.0)]
-			  ]
+    # Build molecule
+    mol = gto.Mole()
+    mol.atom       = triplet_atoms
+    mol.basis      = BASIS
+    mol.charge     = 0
+    mol.spin       = 2            # 2S = 2 -> triplet (open shell)
+    mol.symmetry   = False
+    mol.verbose    = 4
+    mol.max_memory = 7000
+    mol.build()
 
-# Build molecule
-mol = gto.Mole()
-mol.atom       = triplet_atoms
-mol.basis      = BASIS
-mol.charge     = 0
-mol.spin       = 2            # 2S = 2 -> triplet (open shell)
-mol.symmetry   = False
-mol.verbose    = 4
-mol.max_memory = 7000
-mol.build()
+    # UHF (unrestricted)
+    mf = scf.UHF(mol)
+    mf.max_memory = 7000
+    mf.kernel()
 
-# UHF (unrestricted)
-mf = scf.UHF(mol)
-mf.max_memory = 7000
-mf.kernel()
+    # UCCSD(T)
+    mycc = cc.UCCSD(mf)
+    mycc.frozen          = FROZEN
+    mycc.incore_complete = True
+    mycc.max_memory      = 7000
+    mycc.kernel()
+    et = mycc.ccsd_t()
+    E_triplet_CCSD = mf.e_tot + mycc.e_corr
+    E_triplet = mf.e_tot + mycc.e_corr + et
 
-# UCCSD(T)
-mycc = cc.UCCSD(mf)
-mycc.frozen          = FROZEN
-mycc.incore_complete = True
-mycc.max_memory      = 7000
-mycc.kernel()
-et = mycc.ccsd_t()
-E_triplet_CCSD = mf.e_tot + mycc.e_corr
-E_triplet = mf.e_tot + mycc.e_corr + et
-
-print("\n" + "=" * 64)
-#print(f"geometry file            : {XYZ_FILE}")
-print(f"basis                    : {BASIS}   frozen core = 0")
-print(f"UHF <S^2>                : {mf.spin_square()[0]:.4f}")
-print(f"E(UHF)                   : {mf.e_tot:.10f}")
-print(f"E_corr(CCSD)             : {mycc.e_corr:.10f}")
-print(f"E(T)                     : {et:.10f}")
-print(f"E(Si3 TRIPLET, CCSD)  : {E_triplet_CCSD:.13f} Ha")
-print(f"E(Si3 TRIPLET, CCSD(T))  : {E_triplet:.13f} Ha")
-print("=" * 64)
+    print("\n" + "=" * 64)
+    #print(f"geometry file            : {XYZ_FILE}")
+    print(f"basis                    : {BASIS}   frozen core = {FROZEN}")
+    print(f"UHF <S^2>                : {mf.spin_square()[0]:.4f}")
+    print(f"E(UHF)                   : {mf.e_tot:.10f}")
+    print(f"E_corr(CCSD)             : {mycc.e_corr:.10f}")
+    print(f"E(T)                     : {et:.10f}")
+    print(f"E(Si3 TRIPLET, CCSD)  : {E_triplet_CCSD:.13f} Ha")
+    print(f"E(Si3 TRIPLET, CCSD(T))  : {E_triplet:.13f} Ha")
+    print("=" * 64)
