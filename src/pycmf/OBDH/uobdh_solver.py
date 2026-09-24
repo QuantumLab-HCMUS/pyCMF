@@ -532,20 +532,16 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
             F_eff_mo_b = fock_udftobmp2_b 
         else:
             e_corr = (ene_uobmp2 - ene_hfpyscf)
-            e_tot = ene_uobmp2 
+            #e_tot = ene_uobmp2 
             fock_udftobmp2_a = (fock_uobmp2_a - fock_hf_pyscf_a) 
             fock_udftobmp2_b = (fock_uobmp2_b - fock_hf_pyscf_b)
             
-            de = abs(e_tot - ene_old) if ene_old is not None else numpy.inf
-            ene_old = e_tot
+            de = abs(e_corr - ene_old) if ene_old is not None else numpy.inf
+            ene_old = e_corr
 
             # For Pure OBMP2, DIIS Fock = HF + UOBMP2 - HF = UOBMP2
             F_eff_mo_a = fock_hf_pyscf_a + fock_udftobmp2_a 
             F_eff_mo_b = fock_hf_pyscf_b + fock_udftobmp2_b 
-
-        if it + 1 >= min_iter and de <= mp.thresh:
-            conv = True
-            break
 
         # DIIS
         C_a = mf_emb.mo_coeff[0]
@@ -575,12 +571,6 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
 
         diis_r = (r_a + r_b + 50.0 * r_ab + 50.0 * r_ba).real
         dRMS = numpy.mean(diis_r**2) ** 0.5
-
-        # Print tương ứng với method
-        if is_hybrid:
-            print(f"Iter {it}: E_tot={e_tot:.12f}, E_corr={e_corr_hybrid:.12f}, dE={de:.8e}, dRMS={dRMS:.8e}")
-        else:
-            print(f"Iter {it}: E_corr={e_corr:.12f}, dE={de:.8e}, dRMS={dRMS:.8e}")
 
         F_list_a.append(F_a.copy())
         F_list_b.append(F_b.copy())
@@ -646,6 +636,30 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
     
         dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
         dm = lib.tag_array(dm, mo_coeff=mf_emb.mo_coeff, mo_occ=mf_emb.mo_occ)
+
+        # Check Brillouin condition for fbar_ia = 0 
+        f_ia_a, f_ia_b = F_eff_mo_a[:nocca, nocca:], F_eff_mo_b[:noccb, noccb:]
+        norm_fia_a = numpy.linalg.norm(f_ia_a)
+        norm_fia_b = numpy.linalg.norm(f_ia_b)
+        max_fia = max(norm_fia_a, norm_fia_b)
+
+        # Print tương ứng với method
+        if is_hybrid:
+            print(f"Iter {it}: E_tot={e_tot:.12f}, E_corr={e_corr_hybrid:.12f}, dE={de:.8e}, df_ia={max_fia:.8e}, dRMS={dRMS:.8e}")
+        else:
+            print(f"Iter {it}: E_corr={e_corr:.12f}, dE={de:.8e}, df_ia={max_fia:.8e}, dRMS={dRMS:.8e}")
+
+        if it + 1 >= min_iter and de <= mp.thresh and max_fia <= 1e-6:
+            conv = True
+            mp._fock_ao = (F_a, F_b)
+            mp._fock_mo = (F_a_mo, F_b_mo)
+            break
+
+            
     mp.converged = conv
     dm_total = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
-    return e_tot, ene_dft, (dm_total[0], dm_total[1])
+
+    if is_hybrid:
+        return e_tot, ene_dft, (dm_total[0], dm_total[1])
+    else:
+        return e_corr, 0, (dm_total[0], dm_total[1])
