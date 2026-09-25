@@ -154,6 +154,14 @@ def get_nmo(mp):
     nmob = mp.mo_occ[1].size
     return nmoa, nmob
 
+def get_fock(self, ao_basis = False):
+    if self._fock_ao is None or self._fock_mo is None:
+        raise RuntimeError(" [!] Need to run the kernel....")
+    if ao_basis: 
+        return self._fock_ao
+    else:
+        return self._fock_mo
+
 class BaseEmbedOBMP2(DFOBMP2):
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
@@ -179,8 +187,10 @@ class BaseEmbedOBMP2(DFOBMP2):
         self.mom_start_cycle = 2
         self.mom_in_embed = False
  
-        self._gamma            = None   
+        self._gamma    = None   
         self.converged = None
+        self._fock_ao  = None
+        self._fock_mo  = None 
 
     get_nocc = get_nocc
     get_nmo = get_nmo
@@ -201,6 +211,14 @@ class BaseEmbedOBMP2(DFOBMP2):
             raise RuntimeError("Need to run kernel().")
         return scf.hf.mulliken_pop(self.mol, self._gamma[0] + self._gamma[1])
 
+    @property
+    def fock_ao(self):
+        return get_fock(self, ao_basis = True)
+
+    @property
+    def fock_mo(self):
+        return get_fock(self)
+
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         if self.use_embed:
             self.ene_tot, self.e_ref = embed_kernel(self)
@@ -209,31 +227,52 @@ class BaseEmbedOBMP2(DFOBMP2):
         return self.ene_tot
 
     def standard_kernel(self):
-            log = logger.new_logger(self, self.verbose)
-            method_name = "OBDH (HYBRID)" if self.is_hybrid else "OBMP2 (PURE)"
-            print('\n' + '='*70)
-            print(f'RUNNING STANDARD {method_name} (NO EMBEDDING)')
-            print('='*70)
-            
-            xc_code = f"{self.alphaa[0]}*HF + {1-self.alphaa[0]}*B88, {1-self.alphaa[1]}*LYP"
-            
-            mf_std = self._scf.copy()
-            mf_std.mo_coeff = (self._scf.mo_coeff[0].copy(), self._scf.mo_coeff[1].copy())
-            mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
-            mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
-            
-            e_tot, e_dft, self._gamma = obmp2_iter(self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter)
-            
-            # if self.is_hybrid:
-            #     e_tot = e_returned 
-            # else:
-            #     e_tot = self._scf.e_tot + e_returned 
+        log = logger.new_logger(self, self.verbose)
+        method_name = "OBDH (HYBRID)" if self.is_hybrid else "OBMP2 (PURE)"
+        print('\n' + '='*70)
+        print(f'RUNNING STANDARD {method_name} (NO EMBEDDING)')
+        print('='*70)
+        
+        xc_code = f"{self.alphaa[0]}*HF + {1-self.alphaa[0]}*B88, {1-self.alphaa[1]}*LYP"
+        
+        mf_std = self._scf.copy()
+        mf_std.mo_coeff = (self._scf.mo_coeff[0].copy(), self._scf.mo_coeff[1].copy())
+        mf_std.mo_energy = (self._scf.mo_energy[0].copy(), self._scf.mo_energy[1].copy())
+        mf_std.mo_occ = (self._scf.mo_occ[0].copy(), self._scf.mo_occ[1].copy())
+        
+        e_returned, e_dft, self._gamma = obmp2_iter(
+        self, self.mol, mf_std, xc_code, v_emb=None, niter=self.niter
+        )
 
-            print("-" * 60)
-            print(f"Total Standard Energy = {e_tot:.8f} Eh")
-            print("=" * 60)
-            
-            return e_tot, e_dft, self._gamma
+        if self.is_hybrid:
+            # OBDH: solver vẫn trả năng lượng tổng
+            e_tot = e_returned
+        else:
+            # OBMP2: solver đã đổi sang trả e_corr
+            # Tính HF trên density cuối OBMP2, không chạy lại SCF
+            hf_eval = scf.UHF(self.mol).density_fit()
+            hf_eval.with_df = self.with_df
+
+            dm_final = numpy.asarray(self._gamma)
+            vhf_final = hf_eval.get_veff(self.mol, dm_final)
+
+            e_hf_final = (
+                hf_eval.energy_elec(
+                    dm_final,
+                    h1e=mf_std.get_hcore(),
+                    vhf=vhf_final,
+                )[0]
+                + mf_std.energy_nuc()
+            )
+
+            self.e_corr = float(e_returned)
+            e_tot = e_hf_final + self.e_corr
+
+        print("-" * 60)
+        print(f"Total Standard Energy = {e_tot:.8f} Eh")
+        print("=" * 60)
+        
+        return e_tot, e_dft, self._gamma
 
 # Class OBDH (Hybrid)
 class UB2PLYPDFUOBMP2(BaseEmbedOBMP2):

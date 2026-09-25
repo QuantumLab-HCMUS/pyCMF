@@ -307,7 +307,7 @@ def embed_kernel(mp):
         print("-" * 60)
         print(f"E_HF[A] (relaxed density)       : {e_hf_A:.8f}")
         print(f"E_corr (OBMP2, A)               : {e_corr_A:.8f}")
-        print(f"E_WF[A] = E_HF[A] + E_corr      : {e_wf_A_internal:.8f}")
+        print(f"E_WF[A]                         : {e_wf_A_internal:.8f}")
         print(f"Baseline (Full - A, relaxed)    : {e_baseline:.8f}")
         print(f"Orthogonality Correction        : {e_ortho:.8f}")
 
