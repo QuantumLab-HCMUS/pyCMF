@@ -2,7 +2,7 @@ import numpy as np
 import scipy.linalg as la
 
 
-def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, verbose=True, n_span=None):
+def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, verbose=True, n_span=None, _debug=False):
     """
     Thu gọn không gian ảo bằng Concentric Localization (CL).
 
@@ -46,7 +46,17 @@ def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, v
     # QUAN TRỌNG: full_matrices=True để giữ toàn bộ kernel
     # full_matrices=False sẽ cắt mất (n_vir - n_A_aos) kernel vectors!
     # ------------------------------------------------------------------
-    U, Sigma, V_T = la.svd(C_bar_vir_A, full_matrices=True)
+    if not _debug:
+        U, Sigma, V_T = la.svd(C_bar_vir_A, full_matrices=True)
+    # Lưu đúng ma trận nếu SVD thất bại; không cần thêm helper
+    else:
+        try:
+            U, Sigma, V_T = la.svd(C_bar_vir_A, full_matrices=True)
+        except la.LinAlgError:
+            path = "/data/giahuy/Result/cl_failed_C_bar_vir_A.npy"
+            np.save(path, C_bar_vir_A, allow_pickle=False)
+            print(f"Saved failed SVD matrix: {path}", flush=True)
+            raise
     # V_T shape: (n_vir, n_vir) — đầy đủ
 
     idx_span = Sigma > tol  # chỉ Sigma[:min(n_A_aos,n_vir)] có nghĩa
