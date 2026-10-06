@@ -2,7 +2,7 @@ import numpy as np
 import scipy.linalg as la
 
 
-def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, verbose=True, n_span=None, _debug=True):
+def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, verbose=True, n_span=None):
     """
     Thu gọn không gian ảo bằng Concentric Localization (CL).
 
@@ -46,35 +46,27 @@ def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, v
     # QUAN TRỌNG: full_matrices=True để giữ toàn bộ kernel
     # full_matrices=False sẽ cắt mất (n_vir - n_A_aos) kernel vectors!
     # ------------------------------------------------------------------
-    if not _debug:
-        U, Sigma, V_T = la.svd(C_bar_vir_A, full_matrices=True)
-    # Lưu đúng ma trận nếu SVD thất bại; không cần thêm helper
-    else:
-        try:
-            U, Sigma, V_T = la.svd(
-                C_bar_vir_A, full_matrices=True
-            )
-        except la.LinAlgError:
-            np.save(
-                "/data/giahuy/Result/cl_failed_C_bar_vir_A.npy",
-                C_bar_vir_A,
-                allow_pickle=False,
-            )
-            print("gesdd failed; testing gesvd in the SAME process",
-                flush=True)
+    try:
+        U, Sigma, V_T = la.svd(
+            C_bar_vir_A, full_matrices=True
+        )
+        print("Standard SVD gesdd success!!!!!!", flush=True)
+    except la.LinAlgError:
+        print("gesdd failed; testing gesvd in the SAME process",
+            flush=True)
 
-            U, Sigma, V_T = la.svd(
-                C_bar_vir_A,
-                full_matrices=True,
-                lapack_driver="gesvd",
-            )
+        U, Sigma, V_T = la.svd(
+            C_bar_vir_A,
+            full_matrices=True,
+            lapack_driver="gesvd",
+        )
 
-            k = len(Sigma)
-            error = la.norm(
-                (U[:, :k] * Sigma) @ V_T[:k, :] - C_bar_vir_A
-            ) / la.norm(C_bar_vir_A)
-            print("gesvd succeeded; relative error =", error,
-                flush=True)
+        k = len(Sigma)
+        error = la.norm(
+            (U[:, :k] * Sigma) @ V_T[:k, :] - C_bar_vir_A
+        ) / la.norm(C_bar_vir_A)
+        print("gesvd succeeded; relative error =", error,
+            flush=True)
     # V_T shape: (n_vir, n_vir) — đầy đủ
 
     idx_span = Sigma > tol  # chỉ Sigma[:min(n_A_aos,n_vir)] có nghĩa
