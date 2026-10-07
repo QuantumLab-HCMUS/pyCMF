@@ -83,6 +83,7 @@ myuhf = scf.UHF(mol).run()
 
 # ===== 3. OBMP2 full-space =====
 robmp = OBMP2(myrhf)
+robmp.css = 0.0
 robmp.second_order = True
 robmp.kernel()
 

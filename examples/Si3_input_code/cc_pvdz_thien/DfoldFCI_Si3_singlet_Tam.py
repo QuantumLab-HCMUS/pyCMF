@@ -14,7 +14,7 @@ print("available memory = ", psutil.virtual_memory().available / 1024**3)
 
 #BASIS    = "cc-pVDZ"
 #BASIS    = "sto6g"
-BASIS    = "cc-pVTZ"
+BASIS    = "aug-cc-pVDZ"
 
 # Basis: aug-cc-pV(T+d)Z for Si singlet
 #si_basis = gto.basis.parse(bse.get_basis(f"{BASIS}", elements=["Si"], fmt="nwchem"))
@@ -28,7 +28,7 @@ nalpha, nbeta = num_particles
 
 #caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 29]   # 1-based
 #caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 34]   # 1-based
-caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 32]   # 1-based
+caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 33]   # 1-based
 caslist_b    = caslist_a
 caslist      = [caslist_a, caslist_b]
 active_space = (np.array(caslist_a) - 1).tolist()                 # 0-based
@@ -39,13 +39,19 @@ norb         = num_orbitals
 # Build molecule
 R = 2.185333880
 angle = 70.0
-for angle in [160, 170]:    
+for angle in [80]:    
 
     print(f"angle = {angle} degrees")
+    #singlet_atoms= [
+    #        ['Si', (0.0, 0.0, 0.0)],
+    #        ['Si', (0.0, -R * np.sin(angle * np.pi / 180.0), R * np.cos(angle * np.pi / 180.0))],
+    #        ['Si', (0.0, 0.0, R)]
+    #    ]
+
     singlet_atoms= [
-            ['Si', (0.0, 0.0, 0.0)],
-            ['Si', (0.0, -R * np.sin(angle * np.pi / 180.0), R * np.cos(angle * np.pi / 180.0))],
-            ['Si', (0.0, 0.0, R)]
+            ['Si', (0.000000, 1.438106, -0.548486)],
+            ['Si', (0.000000, -1.438106, -0.548486)],
+            ['Si', (0.000000, 0.000000, 1.096973)]
         ]
 
     mol = gto.Mole()

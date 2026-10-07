@@ -15,8 +15,8 @@ print("lib.param.MAX_MEMORY = ", lib.param.MAX_MEMORY)
 print("available memory = ", psutil.virtual_memory().available / 1024**3)
 
 
-#BASIS    = "cc-pVDZ"
-BASIS    = "cc-pVTZ"
+BASIS    = "aug-cc-pVDZ"
+#BASIS    = "cc-pVTZ"
 
 # Basis: aug-cc-pV(T+d)Z for Si triplet
 #si_basis = gto.basis.parse(bse.get_basis(f"{BASIS}", elements=["Si"], fmt="nwchem"))
@@ -28,8 +28,12 @@ nalpha, nbeta = num_particles
 
 #caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 29]   
 #caslist_b    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 29]   
-caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 31]   
-caslist_b    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 31]
+caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 26, 27, 34]
+caslist_sorted = sorted(caslist_a)
+caslist_a = caslist_sorted
+caslist_b    = caslist_a
+#caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 31]   
+#caslist_b    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 31]
 #caslist_a    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 34]   
 #caslist_b    = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 34]   
 
@@ -46,14 +50,19 @@ norb         = num_orbitals
 #R    = SIDE / np.sqrt(3.0)                       # circumradius
 R = 2.295097609
 angle = 140.0 
-for angle in [110.0]:    
+for angle in [60.0]:    
+
+    #triplet_atoms = [
+    #        ['Si', (0.0, 0.0, 0.0)],
+    #        ['Si', (0.0, -R * np.sin(angle * np.pi / 180.0), R * np.cos(angle * np.pi / 180.0))],
+    #        ['Si', (0.0, 0.0, R)]
+    #    ]
 
     triplet_atoms = [
-            ['Si', (0.0, 0.0, 0.0)],
-            ['Si', (0.0, -R * np.sin(angle * np.pi / 180.0), R * np.cos(angle * np.pi / 180.0))],
-            ['Si', (0.0, 0.0, R)]
+            ['Si', (0.000000, 1.325075, 0.000000)],
+            ['Si', (1.147549, -0.662538, 0.000000)],
+            ['Si', (-1.147549, -0.662537, 0.000000)]
         ]
-
     mol = gto.Mole()
     mol.atom    = triplet_atoms
     #mol.basis   = {"Si": si_basis}
@@ -71,8 +80,8 @@ for angle in [110.0]:
     myuhf = pyscf.scf.UHF(mol)
     e_uhf = myuhf.kernel()
     ss_uhf, mult_uhf = myuhf.spin_square()
-
-    exit()
+    print(f"Góc = {angle} độ")
+    print(f"E(UHF)                   : {e_uhf:.13f}   <S^2> = {ss_uhf:.4f}")
 
     # UCASCI(12e in 12o, 7a/5b)
     mycas = mcscf.UCASCI(myuhf, ncas=num_orbitals, nelecas=(nalpha, nbeta))
