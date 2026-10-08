@@ -122,11 +122,12 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     mf_emb.max_cycle = 200
     original_get_veff = mf_emb.get_veff
 
-    def get_veff_emb(mol, dm, dm_last=0, vhf_last=0):
+    def get_veff_emb(mol=None, dm=None, dm_last=0, vhf_last=0):
+        if mol is None:
+            mol = mf_emb.mol
         if dm is None:
             dm = mf_emb.make_rdm1()
-        dm = np.asarray(dm)      
-        veff = original_get_veff(mol, dm, dm_last, vhf_last)
+        veff = original_get_veff(mol, np.asarray(dm), dm_last, vhf_last)
         return np.array([veff[0] + v_emb[0], veff[1] + v_emb[1]])
 
     mf_emb.get_veff = get_veff_emb
@@ -137,6 +138,11 @@ def run_embed_uobmp2(mp, mol, xc, h_core_full, h_core_A_iso, v_emb, gamma_init, 
     except Exception as e:
         print(f"   [Warning] UHF kernel failed: {e}. Trying without dm0...")
         mf_emb.kernel()
+
+    if not mf_emb.converged:
+        raise RuntimeError(
+            f"Embedded UHF did not converge after {mf_emb.max_cycle} cycles."
+        )
 
     print(f"   [Embedded UOBMP2] UHF Reference Energy: {mf_emb.e_tot:.8f}")
 
