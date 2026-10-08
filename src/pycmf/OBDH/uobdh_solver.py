@@ -469,7 +469,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         ene_hf += c0
 
         if is_hybrid:
-            vxc = ks.get_veff(mol, dm)
+            vxc = ks.get_veff(mol, numpy.asarray(dm))
             fock_dft_raw = ks.get_fock(h1e, s1e, vxc, dm, diis_start_cycle=it)
             fock_dft = numpy.array([fock_dft_raw[0] + v_emb[0], fock_dft_raw[1] + v_emb[1]])
             
