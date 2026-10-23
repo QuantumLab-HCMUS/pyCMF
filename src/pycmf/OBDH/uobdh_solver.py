@@ -352,6 +352,12 @@ def second_BCH(mp, fock_a, fock_b, fock_hfa, fock_hfb, tmp1, tmp1_bar, c0):
     return c0, c1_a, c1_b
 
 def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
+    mp.converged = False
+    mp._fock_ao = None
+    mp._fock_mo = None
+    if niter < 1:
+        raise ValueError('niter must be at least 1')
+
     nmoa = mf_emb.mo_coeff[0].shape[1] 
     nmob = mf_emb.mo_coeff[1].shape[1]
     nocca = numpy.count_nonzero(mf_emb.mo_occ[0] > 0)
@@ -543,7 +549,7 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
             F_eff_mo_a = fock_hf_pyscf_a + fock_udftobmp2_a 
             F_eff_mo_b = fock_hf_pyscf_b + fock_udftobmp2_b 
 
-        # DIIS
+        # Raw effective Fock and residual at the current orbital state.
         C_a = mf_emb.mo_coeff[0]
         C_b = mf_emb.mo_coeff[1]
 
@@ -571,6 +577,30 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
 
         diis_r = (r_a + r_b + 50.0 * r_ab + 50.0 * r_ba).real
         dRMS = numpy.mean(diis_r**2) ** 0.5
+
+        # Check Brillouin condition for fbar_ia = 0.
+        f_ia_a, f_ia_b = F_eff_mo_a[:nocca, nocca:], F_eff_mo_b[:noccb, noccb:]
+        norm_fia_a = numpy.linalg.norm(f_ia_a)
+        norm_fia_b = numpy.linalg.norm(f_ia_b)
+        max_fia = max(norm_fia_a, norm_fia_b)
+
+        if is_hybrid:
+            print(
+                f'Iter {it}: E_tot={e_tot:.12f}, E_corr={e_corr_hybrid:.12f}, '
+                f'dE={de:.8e}, df_ia={max_fia:.8e}, dRMS={dRMS:.8e}'
+            )
+        else:
+            print(f'Iter {it}: E_corr={e_corr:.12f}, dE={de:.8e}, df_ia={max_fia:.8e}, dRMS={dRMS:.8e}')
+
+        if it + 1 >= min_iter and de <= mp.thresh and max_fia <= 1e-6:
+            conv = True
+
+        # Stop before DIIS/orbital rotation so energy, density and Fock
+        # all describe the state just evaluated, including at the limit.
+        if conv or it + 1 == niter:
+            mp._fock_ao = (F_a.copy(), F_b.copy())
+            mp._fock_mo = (F_eff_mo_a.copy(), F_eff_mo_b.copy())
+            break
 
         F_list_a.append(F_a.copy())
         F_list_b.append(F_b.copy())
@@ -637,25 +667,6 @@ def obmp2_iter(mp, mol, mf_emb, xc_code, v_emb=None, niter=1000):
         dm = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
         dm = lib.tag_array(dm, mo_coeff=mf_emb.mo_coeff, mo_occ=mf_emb.mo_occ)
 
-        # Check Brillouin condition for fbar_ia = 0 
-        f_ia_a, f_ia_b = F_eff_mo_a[:nocca, nocca:], F_eff_mo_b[:noccb, noccb:]
-        norm_fia_a = numpy.linalg.norm(f_ia_a)
-        norm_fia_b = numpy.linalg.norm(f_ia_b)
-        max_fia = max(norm_fia_a, norm_fia_b)
-
-        # Print tương ứng với method
-        if is_hybrid:
-            print(f"Iter {it}: E_tot={e_tot:.12f}, E_corr={e_corr_hybrid:.12f}, dE={de:.8e}, df_ia={max_fia:.8e}, dRMS={dRMS:.8e}")
-        else:
-            print(f"Iter {it}: E_corr={e_corr:.12f}, dE={de:.8e}, df_ia={max_fia:.8e}, dRMS={dRMS:.8e}")
-
-        if it + 1 >= min_iter and de <= mp.thresh and max_fia <= 1e-6:
-            conv = True
-            mp._fock_ao = (F_a, F_b)
-            mp._fock_mo = (F_a_mo, F_b_mo)
-            break
-
-            
     mp.converged = conv
     dm_total = mf_emb.make_rdm1(mf_emb.mo_coeff, mf_emb.mo_occ)
 
