@@ -46,7 +46,27 @@ def concentric_localization(C_vir_eff, S, F, active_aos, n_shells=1, tol=1e-5, v
     # QUAN TRỌNG: full_matrices=True để giữ toàn bộ kernel
     # full_matrices=False sẽ cắt mất (n_vir - n_A_aos) kernel vectors!
     # ------------------------------------------------------------------
-    U, Sigma, V_T = la.svd(C_bar_vir_A, full_matrices=True)
+    try:
+        U, Sigma, V_T = la.svd(
+            C_bar_vir_A, full_matrices=True
+        )
+        print("Standard SVD gesdd success!!!!!!", flush=True)
+    except la.LinAlgError:
+        print("gesdd failed; testing gesvd in the SAME process",
+            flush=True)
+
+        U, Sigma, V_T = la.svd(
+            C_bar_vir_A,
+            full_matrices=True,
+            lapack_driver="gesvd",
+        )
+
+        k = len(Sigma)
+        error = la.norm(
+            (U[:, :k] * Sigma) @ V_T[:k, :] - C_bar_vir_A
+        ) / la.norm(C_bar_vir_A)
+        print("gesvd succeeded; relative error =", error,
+            flush=True)
     # V_T shape: (n_vir, n_vir) — đầy đủ
 
     idx_span = Sigma > tol  # chỉ Sigma[:min(n_A_aos,n_vir)] có nghĩa
